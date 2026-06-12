@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useApp } from '../src/context';
 import { useRequireAuth } from '../src/useRequireAuth';
@@ -44,7 +44,7 @@ export default function AddHabitScreen() {
       title: title.trim(),
       emoji,
       type,
-      targetVolume: type === 'daily' ? 1 : type === 'weekly' ? daysPerWeek : volume,
+      targetVolume: type === 'daily' || type === 'log' ? 1 : type === 'weekly' ? daysPerWeek : volume,
       color: COLORS.primary,
       createdAt: new Date().toISOString(),
       notifyEnabled: false,
@@ -56,10 +56,7 @@ export default function AddHabitScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
           <Text style={styles.screenTitle}>New Habit</Text>
@@ -78,7 +75,7 @@ export default function AddHabitScreen() {
             <TextInput
               style={[styles.emojiCustomBtn, (!!customEmoji || customFocused) && styles.emojiCustomBtnActive]}
               value={customEmoji}
-              onChangeText={v => { setCustomEmoji(v.trim()); }}
+              onChangeText={v => setCustomEmoji(v.trim())}
               placeholder=""
               maxLength={6}
               onFocus={() => setCustomFocused(true)}
@@ -97,20 +94,24 @@ export default function AddHabitScreen() {
             returnKeyType="done"
           />
 
-          <Text style={styles.label}>Frequency</Text>
-          <View style={styles.typeRow}>
+          <Text style={styles.label}>Tracking type</Text>
+          <View style={styles.typeGrid}>
             {([
-              { value: 'daily', label: '✓ Once a day' },
-              { value: 'volume', label: '🔢 Volume' },
-              { value: 'weekly', label: '📅 X/week' },
-            ] as { value: HabitType; label: string }[]).map(t => (
+              { value: 'daily', label: '✓ Once a day', sub: 'Check off daily' },
+              { value: 'volume', label: '🔢 Volume', sub: 'Count reps/sets' },
+              { value: 'weekly', label: '📅 X / week', sub: 'Days per week goal' },
+              { value: 'log', label: '📝 Log only', sub: 'No goal, just track' },
+            ] as { value: HabitType; label: string; sub: string }[]).map(t => (
               <TouchableOpacity
                 key={t.value}
                 style={[styles.typeBtn, type === t.value && styles.typeBtnActive]}
                 onPress={() => setType(t.value)}
               >
-                <Text style={[styles.typeBtnText, type === t.value && styles.typeBtnTextActive]}>
+                <Text style={[styles.typeBtnLabel, type === t.value && styles.typeBtnTextActive]}>
                   {t.label}
+                </Text>
+                <Text style={[styles.typeBtnSub, type === t.value && styles.typeBtnSubActive]}>
+                  {t.sub}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -133,8 +134,8 @@ export default function AddHabitScreen() {
               <TouchableOpacity style={styles.volBtn} onPress={() => setVolume(v => Math.max(2, v - 1))}>
                 <Text style={styles.volBtnText}>−</Text>
               </TouchableOpacity>
-              <Text style={styles.volValue}>{volume}x per day</Text>
-              <TouchableOpacity style={styles.volBtn} onPress={() => setVolume(v => Math.min(20, v + 1))}>
+              <Text style={styles.volValue}>{volume}× per day</Text>
+              <TouchableOpacity style={styles.volBtn} onPress={() => setVolume(v => Math.min(99, v + 1))}>
                 <Text style={styles.volBtnText}>+</Text>
               </TouchableOpacity>
             </View>
@@ -161,13 +162,12 @@ export default function AddHabitScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.background },
-  scroll: { padding: SPACING.md, paddingBottom: 60 },
+  scroll: { padding: SPACING.md, paddingBottom: 40 },
 
   screenTitle: {
     fontSize: 22, fontWeight: '800', color: COLORS.text,
     marginBottom: SPACING.lg, marginTop: SPACING.sm, fontFamily: FONTS.serif,
   },
-
   label: {
     fontSize: 13, fontWeight: '600', color: COLORS.textSecondary,
     textTransform: 'uppercase', letterSpacing: 0.8,
@@ -186,25 +186,27 @@ const styles = StyleSheet.create({
     flex: 1, height: 48, borderRadius: RADIUS.md,
     backgroundColor: COLORS.surface, borderWidth: 2,
     borderColor: COLORS.border, textAlign: 'center' as const,
-    fontSize: 22, includeFontPadding: false,
+    fontSize: 18, includeFontPadding: false,
   } as any,
   emojiCustomBtnActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
 
   input: {
     backgroundColor: COLORS.surface, borderRadius: RADIUS.md,
-    padding: SPACING.md, fontSize: 16,
+    padding: SPACING.md, fontSize: 16, color: COLORS.text,
     borderWidth: 1, borderColor: COLORS.border,
   },
 
-  typeRow: { flexDirection: 'row', gap: 8 },
+  typeGrid: { gap: 8 },
   typeBtn: {
-    flex: 1, paddingVertical: 10, borderRadius: RADIUS.md,
+    padding: 12, borderRadius: RADIUS.md,
     backgroundColor: COLORS.surface, borderWidth: 1,
-    borderColor: COLORS.border, alignItems: 'center',
+    borderColor: COLORS.border,
   },
   typeBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  typeBtnText: { fontSize: 12, fontWeight: '600', color: COLORS.text },
+  typeBtnLabel: { fontSize: 14, fontWeight: '600', color: COLORS.text },
+  typeBtnSub: { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
   typeBtnTextActive: { color: '#fff' },
+  typeBtnSubActive: { color: 'rgba(255,255,255,0.75)' },
 
   stepperRow: {
     flexDirection: 'row', alignItems: 'center',

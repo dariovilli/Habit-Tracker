@@ -71,7 +71,7 @@ export function HabitRow({ habit, progress, streak, weekProgress, onIncrement, o
     );
     if (isWeekly) {
       if (!todayLoggedForWeekly) onIncrement();
-    } else if (done && habit.type === 'daily') {
+    } else if (done && (habit.type === 'daily' || habit.type === 'log')) {
       onDecrement();
     } else {
       onIncrement();

@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,6 +9,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '../src/context';
 import { useRequireAuth } from '../src/useRequireAuth';
@@ -30,6 +31,8 @@ export default function EditChallengeScreen() {
   if (!challenge || !habit) { router.back(); return null; }
 
   const [title, setTitle] = useState(challenge.title);
+  const [startDate, setStartDate] = useState(new Date(challenge.startDate + 'T00:00:00'));
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const isPreset = PRESET_EMOJIS.includes(habit.emoji);
   const [selectedPreset, setSelectedPreset] = useState(isPreset ? habit.emoji : '');
   const [customEmoji, setCustomEmoji] = useState(isPreset ? '' : habit.emoji);
@@ -53,12 +56,6 @@ export default function EditChallengeScreen() {
       d.setDate(d.getDate() - i);
       completedDates.push(d.toISOString().split('T')[0]);
     }
-    const startDate = (() => {
-      const d = new Date();
-      d.setDate(d.getDate() - daysCompleted);
-      return d.toISOString().split('T')[0];
-    })();
-
     const isNowComplete = completedDates.length >= days;
     dispatch({
       type: 'UPDATE_CHALLENGE',
@@ -66,7 +63,7 @@ export default function EditChallengeScreen() {
         ...challenge,
         title: title.trim(),
         durationDays: days,
-        startDate,
+        startDate: startDate.toISOString().split('T')[0],
         completedDates,
         completed: isNowComplete,
         completedAt: isNowComplete && !challenge.completedAt ? new Date().toISOString() : challenge.completedAt,
@@ -134,6 +131,37 @@ export default function EditChallengeScreen() {
               <Text style={styles.stepBtnText}>+</Text>
             </TouchableOpacity>
           </View>
+
+          <Text style={styles.label}>Start date</Text>
+          {Platform.OS === 'web' ? (
+            <TextInput
+              style={styles.input}
+              value={startDate.toISOString().split('T')[0]}
+              onChangeText={v => { const d = new Date(v); if (!isNaN(d.getTime())) setStartDate(d); }}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={COLORS.textMuted}
+            />
+          ) : (
+            <>
+              <TouchableOpacity style={styles.dateBtn} onPress={() => setShowDatePicker(v => !v)}>
+                <Text style={styles.dateBtnText}>
+                  📅  {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </Text>
+              </TouchableOpacity>
+              {showDatePicker && (
+                <DateTimePicker
+                  value={startDate}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                  maximumDate={new Date()}
+                  onChange={(_, date) => {
+                    if (Platform.OS === 'android') setShowDatePicker(false);
+                    if (date) setStartDate(date);
+                  }}
+                />
+              )}
+            </>
+          )}
 
           <Text style={styles.label}>Days already completed</Text>
           <View style={styles.stepperRow}>
@@ -234,4 +262,9 @@ const styles = StyleSheet.create({
   },
   saveBtnDisabled: { opacity: 0.4 },
   saveBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  dateBtn: {
+    backgroundColor: COLORS.surface, borderRadius: RADIUS.md,
+    padding: SPACING.md, borderWidth: 1, borderColor: COLORS.border,
+  },
+  dateBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.primary },
 });

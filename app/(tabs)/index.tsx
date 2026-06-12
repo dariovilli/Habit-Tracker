@@ -2,9 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  Image,
   Modal,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,6 +12,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -236,12 +240,34 @@ function ChallengeForm({ onClose }: { onClose: () => void }) {
   );
 }
 
+const AVATAR_KEY = '@habittracker_avatar';
+
 export default function TodayScreen() {
   useRequireAuth();
   const { state, dispatch, justCompletedChallenge, clearJustCompleted } = useApp();
   const { session, signOut } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem(AVATAR_KEY).then(v => { if (v) setAvatarUri(v); });
+  }, []);
+
+  const pickAvatar = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.5,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const uri = result.assets[0].uri;
+      setAvatarUri(uri);
+      await AsyncStorage.setItem(AVATAR_KEY, uri);
+    }
+  };
   const [confetti, setConfetti] = useState(false);
   const [showChallengeForm, setShowChallengeForm] = useState(false);
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -447,16 +473,30 @@ export default function TodayScreen() {
 
       <Confetti visible={confetti} />
 
-      <Modal transparent animationType="fade" visible={profileOpen} onRequestClose={() => setProfileOpen(false)}>
+      <Modal transparent animationType="slide" visible={profileOpen} onRequestClose={() => setProfileOpen(false)}>
         <TouchableOpacity style={styles.profileOverlay} activeOpacity={1} onPress={() => setProfileOpen(false)}>
-          <TouchableOpacity activeOpacity={1} style={styles.profileSheet}>
-            <View style={styles.profileAvatar}>
-              <Text style={styles.profileAvatarText}>
-                {(state.userName || session?.user?.email || '?')[0].toUpperCase()}
-              </Text>
+          <TouchableOpacity activeOpacity={1} style={[styles.profileSheet, { paddingBottom: Math.max(insets.bottom + 8, SPACING.lg) }]}>
+            {/* Avatar + name/email row */}
+            <View style={styles.profileRow}>
+              <TouchableOpacity style={styles.profileAvatarWrap} onPress={pickAvatar}>
+                {avatarUri ? (
+                  <Image source={{ uri: avatarUri }} style={styles.profileAvatarImg} />
+                ) : (
+                  <View style={styles.profileAvatar}>
+                    <Text style={styles.profileAvatarText}>
+                      {(state.userName || session?.user?.email || '?')[0].toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.cameraIcon}>
+                  <Text style={styles.cameraIconText}>📷</Text>
+                </View>
+              </TouchableOpacity>
+              <View style={styles.profileInfo}>
+                {!!state.userName && <Text style={styles.profileName}>{state.userName}</Text>}
+                <Text style={styles.profileEmail}>{session?.user?.email}</Text>
+              </View>
             </View>
-            {!!state.userName && <Text style={styles.profileName}>{state.userName}</Text>}
-            <Text style={styles.profileEmail}>{session?.user?.email}</Text>
             <TouchableOpacity
               style={styles.signOutBtn}
               onPress={() => {
@@ -496,16 +536,28 @@ const styles = StyleSheet.create({
   profileSheet: {
     backgroundColor: COLORS.surface,
     borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl,
-    padding: SPACING.lg, paddingBottom: SPACING.xl, alignItems: 'center',
+    padding: SPACING.lg,
   },
+  profileRow: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.md, marginBottom: SPACING.lg,
+  },
+  profileAvatarWrap: { position: 'relative' },
   profileAvatar: {
-    width: 64, height: 64, borderRadius: 32,
+    width: 56, height: 56, borderRadius: 28,
     backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center',
-    marginBottom: SPACING.sm,
   },
-  profileAvatarText: { fontSize: 28, fontWeight: '700', color: '#fff' },
-  profileName: { fontSize: 18, fontWeight: '700', color: COLORS.text, fontFamily: FONTS.serif, marginBottom: 4 },
-  profileEmail: { fontSize: 13, color: COLORS.textMuted, marginBottom: SPACING.lg },
+  profileAvatarImg: { width: 56, height: 56, borderRadius: 28 },
+  profileAvatarText: { fontSize: 24, fontWeight: '700', color: '#fff' },
+  cameraIcon: {
+    position: 'absolute', bottom: -2, right: -2,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  cameraIconText: { fontSize: 11 },
+  profileInfo: { flex: 1 },
+  profileName: { fontSize: 16, fontWeight: '700', color: COLORS.text, fontFamily: FONTS.serif },
+  profileEmail: { fontSize: 13, color: COLORS.textMuted, marginTop: 2 },
   signOutBtn: {
     width: '100%', padding: 14, borderRadius: RADIUS.lg,
     backgroundColor: COLORS.primaryLight, alignItems: 'center',

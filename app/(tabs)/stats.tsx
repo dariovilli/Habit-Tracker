@@ -2,13 +2,14 @@ import React, { useRef, useState } from 'react';
 import {
   Modal,
   PanResponder,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../src/context';
 import { useRequireAuth } from '../../src/useRequireAuth';
 import { isHabitDone, getStreak, today } from '../../src/store';
@@ -36,6 +37,7 @@ function getLabelForOffset(offset: number): string {
 
 function DayDetailModal({ date, onClose }: { date: string; onClose: () => void }) {
   const { state } = useApp();
+  const insets = useSafeAreaInsets();
   const label = new Date(date + 'T00:00:00').toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric',
   });
@@ -44,7 +46,7 @@ function DayDetailModal({ date, onClose }: { date: string; onClose: () => void }
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
-        <TouchableOpacity activeOpacity={1} style={styles.sheet}>
+        <TouchableOpacity activeOpacity={1} style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 8, SPACING.lg) }]}>
           <Text style={styles.sheetDate}>{label}</Text>
           {doneHabits.map(h => (
             <View key={h.id} style={styles.sheetRow}>
@@ -108,9 +110,10 @@ function MonthGrid({ offset, onDayPress, onPrev, onNext }: MonthGridProps) {
       <View style={styles.monthGrid}>
         {days.map(date => {
           const isFuture = date > todayStr;
-          const hasHabits = state.habits.length > 0;
-          const anyDone = hasHabits && state.habits.some(h => isHabitDone(state.logs, h, date));
-          const allMissed = hasHabits && !isFuture && !anyDone;
+          const anyDone = state.habits.some(h => isHabitDone(state.logs, h, date));
+          // Log-only habits don't count toward "missed" — no obligation
+          const goalHabits = state.habits.filter(h => h.type !== 'log');
+          const allMissed = goalHabits.length > 0 && !isFuture && !goalHabits.some(h => isHabitDone(state.logs, h, date));
 
           let bg = COLORS.border;
           if (anyDone) bg = COLORS.successMuted;

@@ -43,7 +43,7 @@ export function getLog(logs: HabitLog[], habitId: string, date: string): HabitLo
 export function isHabitDone(logs: HabitLog[], habit: Habit, date = today()): boolean {
   const log = getLog(logs, habit.id, date);
   if (!log) return false;
-  if (habit.type === 'weekly') return log.completedCount >= 1;
+  if (habit.type === 'weekly' || habit.type === 'log') return log.completedCount >= 1;
   return log.completedCount >= habit.targetVolume;
 }
 
