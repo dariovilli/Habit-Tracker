@@ -3,12 +3,14 @@ import { Animated, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useApp } from '../src/context';
-import { COLORS, RADIUS, SPACING } from '../src/theme';
+import { useRequireAuth } from '../src/useRequireAuth';
+import { COLORS, FONTS, RADIUS, SPACING } from '../src/theme';
 import { feedbackComplete } from '../src/feedback';
 import { playCelebration } from '../src/sound';
 import { Confetti } from '../components/Confetti';
 
 export default function ChallengeCompleteScreen() {
+  useRequireAuth();
   const router = useRouter();
   const { challengeId } = useLocalSearchParams<{ challengeId: string }>();
   const { state, dispatch } = useApp();
@@ -45,7 +47,7 @@ export default function ChallengeCompleteScreen() {
   };
 
   return (
-    <LinearGradient colors={['#7C5CFF', '#4A2FCC']} style={styles.gradient}>
+    <LinearGradient colors={['#7a4add', '#592ea9']} style={styles.gradient}>
       <SafeAreaView style={{ flex: 1 }}>
         <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
           <Animated.View style={[styles.badge, { transform: [{ scale: scaleAnim }] }]}>
@@ -121,6 +123,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 48,
     marginBottom: SPACING.md,
+    fontFamily: FONTS.serif,
   },
   sub: {
     fontSize: 18,

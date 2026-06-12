@@ -19,13 +19,13 @@ function makeParticles(count: number): Particle[] {
     opacity: new Animated.Value(0),
     scale: new Animated.Value(0),
     color: PARTICLE_COLORS[i % PARTICLE_COLORS.length],
-    offsetX: (Math.random() - 0.5) * 320,
+    offsetX: (Math.random() - 0.5) * 400,
   }));
 }
 
 type Props = { visible: boolean; count?: number };
 
-export function Confetti({ visible, count = 24 }: Props) {
+export function Confetti({ visible, count = 36 }: Props) {
   const particles = useRef<Particle[]>(makeParticles(count)).current;
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export function Confetti({ visible, count = 24 }: Props) {
       p.opacity.setValue(1);
       p.scale.setValue(1);
 
-      const targetY = -(Math.random() * 380 + 100);
+      const targetY = -(Math.random() * 420 + 120);
       const duration = 600 + Math.random() * 600;
 
       return Animated.parallel([
@@ -89,8 +89,8 @@ const styles = StyleSheet.create({
   },
   dot: {
     position: 'absolute',
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
   },
 });

@@ -1,6 +1,8 @@
 import { Tabs } from 'expo-router';
 import { Platform, Text } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../src/theme';
+import { useRequireAuth } from '../../src/useRequireAuth';
 
 function TabIcon({ label, focused }: { label: string; focused: boolean }) {
   const icons: Record<string, string> = {
@@ -17,6 +19,10 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
 }
 
 export default function TabsLayout() {
+  useRequireAuth();
+  const insets = useSafeAreaInsets();
+  const tabBarHeight = 56 + insets.bottom;
+
   return (
     <Tabs
       screenOptions={{
@@ -27,10 +33,10 @@ export default function TabsLayout() {
           backgroundColor: '#fff',
           borderTopColor: COLORS.border,
           paddingTop: 6,
-          height: Platform.OS === 'android' ? 90 : 76,
-          paddingBottom: Platform.OS === 'android' ? 22 : 8,
+          height: tabBarHeight,
+          paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
         },
-        tabBarLabelStyle: { fontSize: 11, marginBottom: Platform.OS === 'android' ? 4 : 8 },
+        tabBarLabelStyle: { fontSize: 11, marginBottom: Platform.OS === 'android' ? 4 : 0 },
       }}
     >
       <Tabs.Screen
@@ -47,17 +53,12 @@ export default function TabsLayout() {
           tabBarIcon: ({ focused }) => <TabIcon label="Stats" focused={focused} />,
         }}
       />
+      <Tabs.Screen name="account" options={{ href: null }} />
       <Tabs.Screen
         name="challenges"
         options={{ href: null }}
       />
-      <Tabs.Screen
-        name="dev"
-        options={{
-          title: 'Dev',
-          tabBarIcon: ({ focused }) => <TabIcon label="Dev" focused={focused} />,
-        }}
-      />
+      <Tabs.Screen name="dev" options={{ href: null }} />
     </Tabs>
   );
 }

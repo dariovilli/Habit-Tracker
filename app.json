@@ -1,21 +1,26 @@
 {
   "expo": {
-    "name": "antigravity",
+    "name": "Habit Tracker",
     "slug": "antigravity",
-    "scheme": "antigravity",
-    "version": "1.0.0",
+    "scheme": "habittracker",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#7a4add"
+    },
     "ios": {
       "supportsTablet": true
     },
     "android": {
+      "package": "com.habittracker.app",
+      "versionCode": 2,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#7a4add"
       },
       "predictiveBackGestureEnabled": false
     },
@@ -25,6 +30,13 @@
     "plugins": [
       "expo-asset",
       "expo-router"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "91c1f3dd-2543-4f0e-9800-c12d5d0c56a6"
+      }
+    },
+    "owner": "radiovilli"
   }
 }

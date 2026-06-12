@@ -10,59 +10,76 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '../src/context';
 import { useRequireAuth } from '../src/useRequireAuth';
-import { Habit, HabitType } from '../src/types';
 import { COLORS, FONTS, RADIUS, SPACING } from '../src/theme';
 import { feedbackLight } from '../src/feedback';
 
 const PRESET_EMOJIS = ['💪', '🏃', '🧘', '📚', '📵'];
 
-export default function AddHabitScreen() {
+export default function EditChallengeScreen() {
   useRequireAuth();
+  const { challengeId } = useLocalSearchParams<{ challengeId: string }>();
+  const { state, dispatch } = useApp();
   const router = useRouter();
-  const { dispatch } = useApp();
 
-  const [selectedPreset, setSelectedPreset] = useState('💪');
-  const [customEmoji, setCustomEmoji] = useState('');
+  const challenge = state.challenges.find(c => c.id === challengeId);
+  const habit = state.habits.find(h => h.id === challenge?.habitId);
+
+  if (!challenge || !habit) { router.back(); return null; }
+
+  const [title, setTitle] = useState(challenge.title);
+  const isPreset = PRESET_EMOJIS.includes(habit.emoji);
+  const [selectedPreset, setSelectedPreset] = useState(isPreset ? habit.emoji : '');
+  const [customEmoji, setCustomEmoji] = useState(isPreset ? '' : habit.emoji);
   const [customFocused, setCustomFocused] = useState(false);
-  const emoji = customEmoji || selectedPreset;
-
-  const [title, setTitle] = useState('');
-  const [type, setType] = useState<HabitType>('daily');
-  const [volume, setVolume] = useState(3);
-  const [daysPerWeek, setDaysPerWeek] = useState(3);
-
+  const emoji = customEmoji || selectedPreset || '💪';
+  const [days, setDays] = useState(challenge.durationDays);
+  const [daysCompleted, setDaysCompleted] = useState(challenge.completedDates.length);
   const canSave = title.trim().length > 0;
 
   const save = () => {
     if (!canSave) return;
     feedbackLight();
-    const habit: Habit = {
-      id: Date.now().toString(),
-      title: title.trim(),
-      emoji,
-      type,
-      targetVolume: type === 'daily' ? 1 : type === 'weekly' ? daysPerWeek : volume,
-      color: COLORS.primary,
-      createdAt: new Date().toISOString(),
-      notifyEnabled: false,
-      notifyTime: '09:00',
-    };
-    dispatch({ type: 'ADD_HABIT', payload: habit });
+
+    if (emoji !== habit.emoji && emoji.trim()) {
+      dispatch({ type: 'UPDATE_HABIT', payload: { ...habit, emoji } });
+    }
+
+    const completedDates: string[] = [];
+    for (let i = daysCompleted; i >= 1; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      completedDates.push(d.toISOString().split('T')[0]);
+    }
+    const startDate = (() => {
+      const d = new Date();
+      d.setDate(d.getDate() - daysCompleted);
+      return d.toISOString().split('T')[0];
+    })();
+
+    const isNowComplete = completedDates.length >= days;
+    dispatch({
+      type: 'UPDATE_CHALLENGE',
+      payload: {
+        ...challenge,
+        title: title.trim(),
+        durationDays: days,
+        startDate,
+        completedDates,
+        completed: isNowComplete,
+        completedAt: isNowComplete && !challenge.completedAt ? new Date().toISOString() : challenge.completedAt,
+      },
+    });
     router.back();
   };
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-
-          <Text style={styles.screenTitle}>New Habit</Text>
+          <Text style={styles.screenTitle}>Edit Challenge</Text>
 
           <Text style={styles.label}>Icon</Text>
           <View style={styles.emojiRow}>
@@ -86,59 +103,48 @@ export default function AddHabitScreen() {
             />
           </View>
 
-          <Text style={styles.label}>Name</Text>
+          <Text style={styles.label}>Challenge name</Text>
           <TextInput
             style={styles.input}
-            placeholder="e.g. Morning workout"
-            placeholderTextColor={COLORS.textMuted}
             value={title}
             onChangeText={setTitle}
-            maxLength={40}
+            maxLength={50}
             returnKeyType="done"
+            autoFocus
           />
 
-          <Text style={styles.label}>Frequency</Text>
-          <View style={styles.typeRow}>
-            {([
-              { value: 'daily', label: '✓ Once a day' },
-              { value: 'volume', label: '🔢 Volume' },
-              { value: 'weekly', label: '📅 X/week' },
-            ] as { value: HabitType; label: string }[]).map(t => (
+          <Text style={styles.label}>Duration</Text>
+          <View style={styles.presetRow}>
+            {[7, 20, 30].map(d => (
               <TouchableOpacity
-                key={t.value}
-                style={[styles.typeBtn, type === t.value && styles.typeBtnActive]}
-                onPress={() => setType(t.value)}
+                key={d}
+                style={[styles.presetBtn, days === d && styles.presetBtnActive]}
+                onPress={() => setDays(d)}
               >
-                <Text style={[styles.typeBtnText, type === t.value && styles.typeBtnTextActive]}>
-                  {t.label}
-                </Text>
+                <Text style={[styles.presetText, days === d && { color: '#fff' }]}>{d}d</Text>
               </TouchableOpacity>
             ))}
           </View>
+          <View style={styles.stepperRow}>
+            <TouchableOpacity style={styles.stepBtn} onPress={() => setDays(d => Math.max(1, d - 1))}>
+              <Text style={styles.stepBtnText}>−</Text>
+            </TouchableOpacity>
+            <Text style={styles.stepVal}>{days} days</Text>
+            <TouchableOpacity style={styles.stepBtn} onPress={() => setDays(d => Math.min(365, d + 1))}>
+              <Text style={styles.stepBtnText}>+</Text>
+            </TouchableOpacity>
+          </View>
 
-          {type === 'weekly' && (
-            <View style={styles.stepperRow}>
-              <TouchableOpacity style={styles.volBtn} onPress={() => setDaysPerWeek(v => Math.max(1, v - 1))}>
-                <Text style={styles.volBtnText}>−</Text>
-              </TouchableOpacity>
-              <Text style={styles.volValue}>{daysPerWeek} days / week</Text>
-              <TouchableOpacity style={styles.volBtn} onPress={() => setDaysPerWeek(v => Math.min(6, v + 1))}>
-                <Text style={styles.volBtnText}>+</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {type === 'volume' && (
-            <View style={styles.stepperRow}>
-              <TouchableOpacity style={styles.volBtn} onPress={() => setVolume(v => Math.max(2, v - 1))}>
-                <Text style={styles.volBtnText}>−</Text>
-              </TouchableOpacity>
-              <Text style={styles.volValue}>{volume}x per day</Text>
-              <TouchableOpacity style={styles.volBtn} onPress={() => setVolume(v => Math.min(20, v + 1))}>
-                <Text style={styles.volBtnText}>+</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          <Text style={styles.label}>Days already completed</Text>
+          <View style={styles.stepperRow}>
+            <TouchableOpacity style={styles.stepBtn} onPress={() => setDaysCompleted(d => Math.max(0, d - 1))}>
+              <Text style={styles.stepBtnText}>−</Text>
+            </TouchableOpacity>
+            <Text style={styles.stepVal}>{daysCompleted} / {days}</Text>
+            <TouchableOpacity style={styles.stepBtn} onPress={() => setDaysCompleted(d => Math.min(days, d + 1))}>
+              <Text style={styles.stepBtnText}>+</Text>
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.actions}>
             <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()}>
@@ -149,10 +155,9 @@ export default function AddHabitScreen() {
               onPress={save}
               disabled={!canSave}
             >
-              <Text style={styles.saveBtnText}>Save habit</Text>
+              <Text style={styles.saveBtnText}>Save</Text>
             </TouchableOpacity>
           </View>
-
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -192,30 +197,29 @@ const styles = StyleSheet.create({
 
   input: {
     backgroundColor: COLORS.surface, borderRadius: RADIUS.md,
-    padding: SPACING.md, fontSize: 16,
+    padding: SPACING.md, fontSize: 16, color: COLORS.text,
     borderWidth: 1, borderColor: COLORS.border,
   },
 
-  typeRow: { flexDirection: 'row', gap: 8 },
-  typeBtn: {
-    flex: 1, paddingVertical: 10, borderRadius: RADIUS.md,
-    backgroundColor: COLORS.surface, borderWidth: 1,
-    borderColor: COLORS.border, alignItems: 'center',
+  presetRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  presetBtn: {
+    flex: 1, paddingVertical: 8, borderRadius: RADIUS.full,
+    backgroundColor: COLORS.background, alignItems: 'center',
+    borderWidth: 1, borderColor: COLORS.border,
   },
-  typeBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  typeBtnText: { fontSize: 12, fontWeight: '600', color: COLORS.text },
-  typeBtnTextActive: { color: '#fff' },
+  presetBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  presetText: { fontSize: 13, fontWeight: '600', color: COLORS.text },
 
   stepperRow: {
     flexDirection: 'row', alignItems: 'center',
-    gap: SPACING.md, marginTop: SPACING.sm,
+    gap: SPACING.md, marginBottom: SPACING.sm,
   },
-  volBtn: {
-    width: 44, height: 44, borderRadius: 22,
+  stepBtn: {
+    width: 36, height: 36, borderRadius: 18,
     backgroundColor: COLORS.primaryLight, alignItems: 'center', justifyContent: 'center',
   },
-  volBtnText: { fontSize: 22, color: COLORS.primary, fontWeight: '600' },
-  volValue: { fontSize: 16, fontWeight: '700', color: COLORS.text, flex: 1, textAlign: 'center' },
+  stepBtnText: { fontSize: 20, color: COLORS.primary, fontWeight: '700' },
+  stepVal: { fontSize: 16, fontWeight: '700', color: COLORS.text, minWidth: 80, textAlign: 'center' },
 
   actions: { flexDirection: 'row', gap: 10, marginTop: SPACING.xl },
   cancelBtn: {

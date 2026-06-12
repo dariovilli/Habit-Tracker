@@ -1,24 +1,110 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import {
+  Modal,
+  PanResponder,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { useApp } from '../../src/context';
-import { isHabitDone, getMonthDays, getStreak, today } from '../../src/store';
-import { COLORS, RADIUS, SPACING } from '../../src/theme';
+import { useRequireAuth } from '../../src/useRequireAuth';
+import { isHabitDone, getStreak, today } from '../../src/store';
+import { COLORS, FONTS, RADIUS, SPACING } from '../../src/theme';
 
-function MonthGrid() {
+// Returns all days in the month that is `offset` months from now (0 = current, -1 = last, etc.)
+function getDaysForOffset(offset: number): string[] {
+  const now = new Date();
+  const ref = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+  const y = ref.getFullYear();
+  const m = ref.getMonth();
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  const days: string[] = [];
+  for (let d = 1; d <= lastDay; d++) {
+    days.push(`${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+  }
+  return days;
+}
+
+function getLabelForOffset(offset: number): string {
+  const now = new Date();
+  const ref = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+  return ref.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+function DayDetailModal({ date, onClose }: { date: string; onClose: () => void }) {
   const { state } = useApp();
-  const days = getMonthDays();
-  const todayStr = today();
-  const monthName = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const label = new Date(date + 'T00:00:00').toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric',
+  });
+  const doneHabits = state.habits.filter(h => isHabitDone(state.logs, h, date));
 
   return (
-    <View>
-      <Text style={styles.sectionTitle}>{monthName}</Text>
+    <Modal transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
+        <TouchableOpacity activeOpacity={1} style={styles.sheet}>
+          <Text style={styles.sheetDate}>{label}</Text>
+          {doneHabits.map(h => (
+            <View key={h.id} style={styles.sheetRow}>
+              <Text style={styles.sheetEmoji}>{h.emoji}</Text>
+              <Text style={styles.sheetHabit}>{h.title}</Text>
+              <Text style={styles.sheetDone}>✓</Text>
+            </View>
+          ))}
+          <TouchableOpacity style={styles.sheetClose} onPress={onClose}>
+            <Text style={styles.sheetCloseText}>Close</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
+type MonthGridProps = {
+  offset: number;
+  onDayPress: (date: string) => void;
+  onPrev: () => void;
+  onNext: () => void;
+};
+
+function MonthGrid({ offset, onDayPress, onPrev, onNext }: MonthGridProps) {
+  const { state } = useApp();
+  const days = getDaysForOffset(offset);
+  const todayStr = today();
+  const isCurrentMonth = offset === 0;
+
+  // Swipe: right = go back, left = go forward
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) =>
+        Math.abs(g.dx) > Math.abs(g.dy) && Math.abs(g.dx) > 20,
+      onPanResponderRelease: (_, g) => {
+        if (g.dx > 50) onPrev();           // swipe right → previous month
+        else if (g.dx < -50 && !isCurrentMonth) onNext(); // swipe left → next month
+      },
+    })
+  ).current;
+
+  return (
+    <View {...panResponder.panHandlers}>
+      {/* Month navigation header */}
+      <View style={styles.monthNav}>
+        <TouchableOpacity onPress={onPrev} style={styles.navBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Text style={styles.navArrow}>‹</Text>
+        </TouchableOpacity>
+        <Text style={styles.sectionTitle}>{getLabelForOffset(offset)}</Text>
+        <TouchableOpacity
+          onPress={onNext}
+          style={[styles.navBtn, isCurrentMonth && styles.navBtnDisabled]}
+          disabled={isCurrentMonth}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Text style={[styles.navArrow, isCurrentMonth && styles.navArrowDisabled]}>›</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.monthGrid}>
         {days.map(date => {
           const isFuture = date > todayStr;
@@ -34,8 +120,10 @@ function MonthGrid() {
           const isToday = date === todayStr;
 
           return (
-            <View
+            <TouchableOpacity
               key={date}
+              onPress={() => anyDone && onDayPress(date)}
+              activeOpacity={anyDone ? 0.7 : 1}
               style={[styles.monthDay, { backgroundColor: bg }, isToday && styles.monthDayToday]}
             >
               <Text style={[
@@ -45,10 +133,11 @@ function MonthGrid() {
               ]}>
                 {dayNum}
               </Text>
-            </View>
+            </TouchableOpacity>
           );
         })}
       </View>
+
       <View style={styles.legendRow}>
         <View style={styles.legendItem}>
           <View style={[styles.legendDot, { backgroundColor: COLORS.successMuted }]} />
@@ -64,41 +153,26 @@ function MonthGrid() {
 }
 
 export default function StatsScreen() {
+  useRequireAuth();
   const { state } = useApp();
+  const [monthOffset, setMonthOffset] = useState(0);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
-  const totalDone = state.logs.filter(l => {
-    const habit = state.habits.find(h => h.id === l.habitId);
-    return habit && l.completedCount >= habit.targetVolume;
-  }).length;
-
-  const bestStreak = state.habits.reduce((best, h) => Math.max(best, getStreak(state.logs, h)), 0);
-  const activeChallenges = state.challenges.filter(c => !c.completed);
+  const goToPrev = () => setMonthOffset(o => o - 1);
+  const goToNext = () => setMonthOffset(o => Math.min(o + 1, 0));
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <Text style={styles.heading}>Your Progress</Text>
 
-        {/* Summary cards */}
-        <View style={styles.summaryRow}>
-          <View style={[styles.summaryCard, { backgroundColor: COLORS.primary }]}>
-            <Text style={styles.summaryNum}>{totalDone}</Text>
-            <Text style={styles.summaryLabel}>Habits Done</Text>
-          </View>
-          <View style={[styles.summaryCard, { backgroundColor: COLORS.primaryDark }]}>
-            <Text style={styles.summaryNum}>{bestStreak}</Text>
-            <Text style={styles.summaryLabel}>Best Streak 🔥</Text>
-          </View>
-          <View style={[styles.summaryCard, { backgroundColor: '#3D2DB3' }]}>
-            <Text style={styles.summaryNum}>{state.habits.length}</Text>
-            <Text style={styles.summaryLabel}>Habits</Text>
-          </View>
-        </View>
+        <MonthGrid
+          offset={monthOffset}
+          onDayPress={setSelectedDate}
+          onPrev={goToPrev}
+          onNext={goToNext}
+        />
 
-        {/* Monthly grid */}
-        <MonthGrid />
-
-        {/* Habit streaks */}
         {state.habits.length > 0 && (
           <View style={{ marginTop: SPACING.lg }}>
             <Text style={styles.sectionTitle}>Streaks</Text>
@@ -120,32 +194,6 @@ export default function StatsScreen() {
           </View>
         )}
 
-        {/* Active challenges */}
-        {activeChallenges.length > 0 && (
-          <View style={{ marginTop: SPACING.lg }}>
-            <Text style={styles.sectionTitle}>Active Challenges</Text>
-            {activeChallenges.map(challenge => {
-              const habit = state.habits.find(h => h.id === challenge.habitId);
-              const pct = Math.min(1, challenge.completedDates.length / challenge.durationDays);
-              const daysLeft = challenge.durationDays - challenge.completedDates.length;
-              return (
-                <View key={challenge.id} style={styles.challengeRow}>
-                  <Text style={styles.habitStatEmoji}>{habit?.emoji ?? '🎯'}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.habitStatTitle}>{challenge.title}</Text>
-                    <View style={styles.streakBar}>
-                      <View style={[styles.streakFill, { width: `${pct * 100}%` }]} />
-                    </View>
-                  </View>
-                  <Text style={styles.streakNum}>
-                    {daysLeft > 0 ? `${daysLeft}d left` : 'Done!'}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-        )}
-
         {state.habits.length === 0 && (
           <View style={styles.empty}>
             <Text style={styles.emptyEmoji}>📊</Text>
@@ -153,51 +201,44 @@ export default function StatsScreen() {
           </View>
         )}
       </ScrollView>
+
+      {selectedDate && (
+        <DayDetailModal date={selectedDate} onClose={() => setSelectedDate(null)} />
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.background },
-  scroll: { padding: SPACING.md, paddingBottom: 100 },
+  scroll: { padding: SPACING.md, paddingBottom: 60 },
 
-  heading: { fontSize: 26, fontWeight: '800', color: COLORS.text, marginBottom: SPACING.lg },
+  heading: { fontSize: 26, fontWeight: '800', color: COLORS.text, marginBottom: SPACING.lg, fontFamily: FONTS.serif },
 
-  summaryRow: { flexDirection: 'row', gap: 10, marginBottom: SPACING.lg },
-  summaryCard: { flex: 1, borderRadius: RADIUS.lg, padding: SPACING.md, alignItems: 'center' },
-  summaryNum: { fontSize: 26, fontWeight: '900', color: '#fff' },
-  summaryLabel: { fontSize: 11, color: 'rgba(255,255,255,0.85)', marginTop: 2, textAlign: 'center' },
+  monthNav: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', marginBottom: SPACING.sm,
+  },
+  navBtn: { padding: 4 },
+  navBtnDisabled: { opacity: 0.2 },
+  navArrow: { fontSize: 28, color: COLORS.primary, fontWeight: '300', lineHeight: 32 },
+  navArrowDisabled: { color: COLORS.textMuted },
 
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: SPACING.sm },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text, fontFamily: FONTS.serif },
 
   monthGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: SPACING.sm },
   monthDay: { width: 36, height: 36, borderRadius: RADIUS.sm, alignItems: 'center', justifyContent: 'center' },
   monthDayToday: { borderWidth: 2, borderColor: COLORS.primary },
   monthDayText: { fontSize: 11, fontWeight: '500', color: COLORS.textMuted },
-  legendRow: { flexDirection: 'row', gap: 16, marginTop: 4, marginBottom: SPACING.sm },
+  legendRow: { flexDirection: 'row', gap: 16, marginTop: 4, marginBottom: SPACING.sm, alignItems: 'center' },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   legendDot: { width: 10, height: 10, borderRadius: 3 },
   legendText: { fontSize: 12, color: COLORS.textMuted },
 
   habitStatRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.md,
-    padding: SPACING.md,
-    marginBottom: 8,
-    gap: 12,
-  },
-  challengeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.primaryLight,
-    borderRadius: RADIUS.md,
-    padding: SPACING.md,
-    marginBottom: 8,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: `${COLORS.primary}22`,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.surface, borderRadius: RADIUS.md,
+    padding: SPACING.md, marginBottom: 8, gap: 12,
   },
   habitStatEmoji: { fontSize: 22 },
   habitStatTitle: { fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 6 },
@@ -208,4 +249,24 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', paddingVertical: 60 },
   emptyEmoji: { fontSize: 48, marginBottom: SPACING.md },
   emptyText: { fontSize: 16, color: COLORS.textMuted, textAlign: 'center' },
+
+  overlay: { flex: 1, backgroundColor: 'rgba(45,23,94,0.5)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl,
+    padding: SPACING.lg, paddingBottom: SPACING.xl,
+  },
+  sheetDate: { fontSize: 16, fontWeight: '700', color: COLORS.text, marginBottom: SPACING.md, fontFamily: FONTS.serif },
+  sheetRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.border, gap: 12,
+  },
+  sheetEmoji: { fontSize: 20 },
+  sheetHabit: { flex: 1, fontSize: 14, fontWeight: '600', color: COLORS.text },
+  sheetDone: { fontSize: 16, fontWeight: '700', color: COLORS.primary },
+  sheetClose: {
+    marginTop: SPACING.md, backgroundColor: COLORS.primaryLight,
+    borderRadius: RADIUS.lg, padding: 14, alignItems: 'center',
+  },
+  sheetCloseText: { fontSize: 15, fontWeight: '700', color: COLORS.primary },
 });

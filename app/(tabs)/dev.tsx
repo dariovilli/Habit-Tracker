@@ -16,6 +16,7 @@ import { feedbackComplete, feedbackMedium } from '../../src/feedback';
 
 export default function DevScreen() {
   const { state, dispatch } = useApp();
+  if (!__DEV__) return null;
 
   const active = state.challenges.filter(c => !c.completed);
 

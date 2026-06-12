@@ -10,59 +10,43 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '../src/context';
 import { useRequireAuth } from '../src/useRequireAuth';
-import { Habit, HabitType } from '../src/types';
 import { COLORS, FONTS, RADIUS, SPACING } from '../src/theme';
 import { feedbackLight } from '../src/feedback';
 
 const PRESET_EMOJIS = ['💪', '🏃', '🧘', '📚', '📵'];
 
-export default function AddHabitScreen() {
+export default function EditHabitScreen() {
   useRequireAuth();
+  const { habitId } = useLocalSearchParams<{ habitId: string }>();
+  const { state, dispatch } = useApp();
   const router = useRouter();
-  const { dispatch } = useApp();
 
-  const [selectedPreset, setSelectedPreset] = useState('💪');
-  const [customEmoji, setCustomEmoji] = useState('');
+  const habit = state.habits.find(h => h.id === habitId);
+  if (!habit) { router.back(); return null; }
+
+  const [title, setTitle] = useState(habit.title);
+  const isPreset = PRESET_EMOJIS.includes(habit.emoji);
+  const [selectedPreset, setSelectedPreset] = useState(isPreset ? habit.emoji : '');
+  const [customEmoji, setCustomEmoji] = useState(isPreset ? '' : habit.emoji);
   const [customFocused, setCustomFocused] = useState(false);
-  const emoji = customEmoji || selectedPreset;
-
-  const [title, setTitle] = useState('');
-  const [type, setType] = useState<HabitType>('daily');
-  const [volume, setVolume] = useState(3);
-  const [daysPerWeek, setDaysPerWeek] = useState(3);
-
+  const emoji = customEmoji || selectedPreset || '💪';
   const canSave = title.trim().length > 0;
 
   const save = () => {
     if (!canSave) return;
     feedbackLight();
-    const habit: Habit = {
-      id: Date.now().toString(),
-      title: title.trim(),
-      emoji,
-      type,
-      targetVolume: type === 'daily' ? 1 : type === 'weekly' ? daysPerWeek : volume,
-      color: COLORS.primary,
-      createdAt: new Date().toISOString(),
-      notifyEnabled: false,
-      notifyTime: '09:00',
-    };
-    dispatch({ type: 'ADD_HABIT', payload: habit });
+    dispatch({ type: 'UPDATE_HABIT', payload: { ...habit, title: title.trim(), emoji } });
     router.back();
   };
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-
-          <Text style={styles.screenTitle}>New Habit</Text>
+          <Text style={styles.screenTitle}>Edit Habit</Text>
 
           <Text style={styles.label}>Icon</Text>
           <View style={styles.emojiRow}>
@@ -89,56 +73,12 @@ export default function AddHabitScreen() {
           <Text style={styles.label}>Name</Text>
           <TextInput
             style={styles.input}
-            placeholder="e.g. Morning workout"
-            placeholderTextColor={COLORS.textMuted}
             value={title}
             onChangeText={setTitle}
             maxLength={40}
             returnKeyType="done"
+            autoFocus
           />
-
-          <Text style={styles.label}>Frequency</Text>
-          <View style={styles.typeRow}>
-            {([
-              { value: 'daily', label: '✓ Once a day' },
-              { value: 'volume', label: '🔢 Volume' },
-              { value: 'weekly', label: '📅 X/week' },
-            ] as { value: HabitType; label: string }[]).map(t => (
-              <TouchableOpacity
-                key={t.value}
-                style={[styles.typeBtn, type === t.value && styles.typeBtnActive]}
-                onPress={() => setType(t.value)}
-              >
-                <Text style={[styles.typeBtnText, type === t.value && styles.typeBtnTextActive]}>
-                  {t.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {type === 'weekly' && (
-            <View style={styles.stepperRow}>
-              <TouchableOpacity style={styles.volBtn} onPress={() => setDaysPerWeek(v => Math.max(1, v - 1))}>
-                <Text style={styles.volBtnText}>−</Text>
-              </TouchableOpacity>
-              <Text style={styles.volValue}>{daysPerWeek} days / week</Text>
-              <TouchableOpacity style={styles.volBtn} onPress={() => setDaysPerWeek(v => Math.min(6, v + 1))}>
-                <Text style={styles.volBtnText}>+</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {type === 'volume' && (
-            <View style={styles.stepperRow}>
-              <TouchableOpacity style={styles.volBtn} onPress={() => setVolume(v => Math.max(2, v - 1))}>
-                <Text style={styles.volBtnText}>−</Text>
-              </TouchableOpacity>
-              <Text style={styles.volValue}>{volume}x per day</Text>
-              <TouchableOpacity style={styles.volBtn} onPress={() => setVolume(v => Math.min(20, v + 1))}>
-                <Text style={styles.volBtnText}>+</Text>
-              </TouchableOpacity>
-            </View>
-          )}
 
           <View style={styles.actions}>
             <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()}>
@@ -149,10 +89,9 @@ export default function AddHabitScreen() {
               onPress={save}
               disabled={!canSave}
             >
-              <Text style={styles.saveBtnText}>Save habit</Text>
+              <Text style={styles.saveBtnText}>Save</Text>
             </TouchableOpacity>
           </View>
-
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -195,27 +134,6 @@ const styles = StyleSheet.create({
     padding: SPACING.md, fontSize: 16,
     borderWidth: 1, borderColor: COLORS.border,
   },
-
-  typeRow: { flexDirection: 'row', gap: 8 },
-  typeBtn: {
-    flex: 1, paddingVertical: 10, borderRadius: RADIUS.md,
-    backgroundColor: COLORS.surface, borderWidth: 1,
-    borderColor: COLORS.border, alignItems: 'center',
-  },
-  typeBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  typeBtnText: { fontSize: 12, fontWeight: '600', color: COLORS.text },
-  typeBtnTextActive: { color: '#fff' },
-
-  stepperRow: {
-    flexDirection: 'row', alignItems: 'center',
-    gap: SPACING.md, marginTop: SPACING.sm,
-  },
-  volBtn: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: COLORS.primaryLight, alignItems: 'center', justifyContent: 'center',
-  },
-  volBtnText: { fontSize: 22, color: COLORS.primary, fontWeight: '600' },
-  volValue: { fontSize: 16, fontWeight: '700', color: COLORS.text, flex: 1, textAlign: 'center' },
 
   actions: { flexDirection: 'row', gap: 10, marginTop: SPACING.xl },
   cancelBtn: {

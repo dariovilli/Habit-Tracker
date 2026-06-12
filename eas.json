@@ -1,0 +1,28 @@
+{
+  "cli": {
+    "version": ">= 16.0.0"
+  },
+  "build": {
+    "preview": {
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://calwyntamwsvcgclhjly.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_U1OQZFG39X5s4IxAoEN-IQ_kpEbeJta"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://calwyntamwsvcgclhjly.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_U1OQZFG39X5s4IxAoEN-IQ_kpEbeJta"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

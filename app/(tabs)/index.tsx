@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  Modal,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -10,41 +12,21 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useApp } from '../../src/context';
-import { isHabitDone, getHabitProgress, getStreak, today } from '../../src/store';
+import { useAuth } from '../../src/auth-context';
+import { useRequireAuth } from '../../src/useRequireAuth';
+import { isHabitDone, getHabitProgress, getStreak, getWeekProgress, today } from '../../src/store';
 import { feedbackMedium, feedbackComplete, feedbackLight } from '../../src/feedback';
 import { playChime } from '../../src/sound';
 import { rescheduleAll } from '../../src/notifications';
-import { COLORS, RADIUS, SPACING } from '../../src/theme';
-import Svg, { Circle } from 'react-native-svg';
+import { COLORS, FONTS, RADIUS, SPACING } from '../../src/theme';
 import { HabitRow } from '../../components/HabitRow';
 import { Confetti } from '../../components/Confetti';
 import { Challenge, Habit, HabitType } from '../../src/types';
 
-function CircleProgress({ pct, done, total, size = 52 }: { pct: number; done: number; total: number; size?: number }) {
-  const sw = 4;
-  const r = (size - sw) / 2;
-  const circ = 2 * Math.PI * r;
-  const offset = circ * (1 - Math.min(1, pct));
-  return (
-    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-      <Svg width={size} height={size} style={{ position: 'absolute', transform: [{ rotate: '-90deg' }] }}>
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke={`${COLORS.primary}28`} strokeWidth={sw} fill="none" />
-        <Circle
-          cx={size / 2} cy={size / 2} r={r}
-          stroke={COLORS.primary} strokeWidth={sw} fill="none"
-          strokeDasharray={`${circ} ${circ}`}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-        />
-      </Svg>
-      <Text style={{ fontSize: 11, fontWeight: '800', color: COLORS.primary, lineHeight: 13 }}>{done}</Text>
-      <Text style={{ fontSize: 8, color: COLORS.textMuted, lineHeight: 10 }}>/{total}</Text>
-    </View>
-  );
-}
 
 const EMOJIS = [
   '💪', '🏃', '🧘', '📚', '✍️', '💧', '🥗', '😴',
@@ -62,55 +44,69 @@ const TODAY_LABEL = new Date().toLocaleDateString('en-US', {
   weekday: 'long', month: 'long', day: 'numeric',
 });
 
+const PRESET_EMOJIS = ['💪', '🏃', '🧘', '📚', '📵'];
+
 function ChallengeForm({ onClose }: { onClose: () => void }) {
-  const { state, dispatch } = useApp();
-  const [habitId, setHabitId] = useState<string | null>(state.habits[0]?.id ?? null);
-  const [formTitle, setFormTitle] = useState('');
-  const [days, setDays] = useState(7);
-  const [newMode, setNewMode] = useState(state.habits.length === 0);
-  const [newEmoji, setNewEmoji] = useState('💪');
-  const [newHabitTitle, setNewHabitTitle] = useState('');
+  const { dispatch } = useApp();
+  const [selectedPreset, setSelectedPreset] = useState('💪');
+  const [customEmoji, setCustomEmoji] = useState('');
+  const [customFocused, setCustomFocused] = useState(false);
+  const emoji = customEmoji || selectedPreset;
+
+  const [habitTitle, setHabitTitle] = useState('');
+  const [daysText, setDaysText] = useState('30');
+  const [isWeekly, setIsWeekly] = useState(false);
+  const [daysPerWeek, setDaysPerWeek] = useState(3);
+  const [startDate, setStartDate] = useState(new Date());
+  const [showPicker, setShowPicker] = useState(false);
+
+  const days = Math.max(1, parseInt(daysText) || 1);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const formatDate = (d: Date) =>
+    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   const create = () => {
-    let finalHabitId = habitId;
-    let habitName = state.habits.find(h => h.id === finalHabitId)?.title ?? 'Habit';
-
-    if (newMode) {
-      if (!newHabitTitle.trim()) {
-        Alert.alert('Name required', 'Enter a name for the new habit.');
-        return;
-      }
-      const newHabit: Habit = {
-        id: `h_${Date.now()}`,
-        title: newHabitTitle.trim(),
-        emoji: newEmoji,
-        type: 'daily' as HabitType,
-        targetVolume: 1,
-        color: COLORS.primary,
-        createdAt: new Date().toISOString(),
-        notifyEnabled: false,
-        notifyTime: '09:00',
-      };
-      dispatch({ type: 'ADD_HABIT', payload: newHabit });
-      finalHabitId = newHabit.id;
-      habitName = newHabit.title;
-    }
-
-    if (!finalHabitId) {
-      Alert.alert('Select a habit first.');
+    if (!habitTitle.trim()) {
+      Alert.alert('Name required', 'Enter a name for the habit.');
       return;
     }
-
     feedbackMedium();
+
+    const habitType: HabitType = isWeekly ? 'weekly' : 'daily';
+    const newHabit: Habit = {
+      id: `h_${Date.now()}`,
+      title: habitTitle.trim(),
+      emoji,
+      type: habitType,
+      targetVolume: isWeekly ? daysPerWeek : 1,
+      color: COLORS.primary,
+      createdAt: new Date().toISOString(),
+      notifyEnabled: false,
+      notifyTime: '09:00',
+    };
+    dispatch({ type: 'ADD_HABIT', payload: newHabit });
+
+    // Pre-fill completed dates from start date up to (not including) today
+    const completedDates: string[] = [];
+    const cursor = new Date(startDate);
+    cursor.setHours(0, 0, 0, 0);
+    const todayStr = new Date().toISOString().split('T')[0];
+    while (cursor < today) {
+      completedDates.push(cursor.toISOString().split('T')[0]);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
     dispatch({
       type: 'ADD_CHALLENGE',
       payload: {
         id: `ch_${Date.now()}`,
-        title: formTitle.trim() || `${habitName} Challenge`,
-        habitId: finalHabitId,
+        title: `${habitTitle.trim()} Challenge`,
+        habitId: newHabit.id,
         durationDays: days,
-        startDate: new Date().toISOString().split('T')[0],
-        completedDates: [],
+        startDate: startDate.toISOString().split('T')[0],
+        completedDates,
         completed: false,
         completedAt: null,
         celebrated: false,
@@ -123,82 +119,110 @@ function ChallengeForm({ onClose }: { onClose: () => void }) {
     <View style={styles.formCard}>
       <Text style={styles.formTitle}>New Challenge</Text>
 
-      <Text style={styles.formLabel}>Habit</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
-        {state.habits.map(h => (
+      {/* Emoji */}
+      <Text style={styles.formLabel}>Icon</Text>
+      <View style={styles.emojiRow}>
+        {PRESET_EMOJIS.map(e => (
           <TouchableOpacity
-            key={h.id}
-            style={[styles.chip, !newMode && habitId === h.id && styles.chipActive]}
-            onPress={() => { setHabitId(h.id); setNewMode(false); }}
+            key={e}
+            style={[styles.emojiPresetBtn, !customEmoji && selectedPreset === e && styles.emojiBtnActive]}
+            onPress={() => { setSelectedPreset(e); setCustomEmoji(''); }}
           >
-            <Text style={[styles.chipText, !newMode && habitId === h.id && { color: '#fff' }]}>
-              {h.emoji} {h.title}
-            </Text>
+            <Text style={styles.emojiPresetText}>{e}</Text>
           </TouchableOpacity>
         ))}
-        <TouchableOpacity
-          style={[styles.chip, newMode && styles.chipActive]}
-          onPress={() => { setNewMode(true); setHabitId(null); }}
-        >
-          <Text style={[styles.chipText, newMode && { color: '#fff' }]}>＋ New</Text>
-        </TouchableOpacity>
-      </ScrollView>
+        <TextInput
+          style={[styles.emojiCustomBtn, (!!customEmoji || customFocused) && styles.emojiCustomBtnActive]}
+          value={customEmoji}
+          onChangeText={v => { setCustomEmoji(v.trim()); }}
+          placeholder=""
+          maxLength={6}
+          onFocus={() => setCustomFocused(true)}
+          onBlur={() => setCustomFocused(false)}
+        />
+      </View>
 
-      {newMode && (
-        <View style={styles.newHabitBox}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-            {EMOJIS.map(e => (
-              <TouchableOpacity
-                key={e}
-                style={[styles.emojiBtn, newEmoji === e && styles.emojiBtnActive]}
-                onPress={() => setNewEmoji(e)}
-              >
-                <Text style={{ fontSize: 20 }}>{e}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          <TextInput
-            style={styles.formInput}
-            placeholder="Habit name"
-            placeholderTextColor={COLORS.textMuted}
-            value={newHabitTitle}
-            onChangeText={setNewHabitTitle}
-            maxLength={40}
-          />
+      {/* Name */}
+      <Text style={styles.formLabel}>Habit name</Text>
+      <TextInput
+        style={styles.formInput}
+        placeholder="e.g. Morning run"
+        placeholderTextColor={COLORS.textMuted}
+        value={habitTitle}
+        onChangeText={setHabitTitle}
+        maxLength={40}
+      />
+
+      {/* Frequency toggle */}
+      <Text style={styles.formLabel}>Frequency</Text>
+      <View style={styles.freqRow}>
+        <TouchableOpacity
+          style={[styles.freqBtn, !isWeekly && styles.freqBtnActive]}
+          onPress={() => setIsWeekly(false)}
+        >
+          <Text style={[styles.freqBtnText, !isWeekly && styles.freqBtnTextActive]}>Every day</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.freqBtn, isWeekly && styles.freqBtnActive]}
+          onPress={() => setIsWeekly(true)}
+        >
+          <Text style={[styles.freqBtnText, isWeekly && styles.freqBtnTextActive]}>X / week</Text>
+        </TouchableOpacity>
+      </View>
+      {isWeekly && (
+        <View style={styles.weeklyRow}>
+          <TouchableOpacity style={styles.stepBtn} onPress={() => setDaysPerWeek(d => Math.max(1, d - 1))}>
+            <Text style={styles.stepBtnText}>−</Text>
+          </TouchableOpacity>
+          <Text style={styles.stepVal}>{daysPerWeek} days / week</Text>
+          <TouchableOpacity style={styles.stepBtn} onPress={() => setDaysPerWeek(d => Math.min(6, d + 1))}>
+            <Text style={styles.stepBtnText}>+</Text>
+          </TouchableOpacity>
         </View>
       )}
 
-      <Text style={styles.formLabel}>Name</Text>
+      {/* Duration */}
+      <Text style={styles.formLabel}>Duration (days)</Text>
       <TextInput
         style={styles.formInput}
-        placeholder={`e.g. ${(state.habits.find(h => h.id === habitId)?.title ?? newHabitTitle) || 'Habit'} Challenge`}
+        value={daysText}
+        onChangeText={v => setDaysText(v.replace(/[^0-9]/g, ''))}
+        keyboardType="number-pad"
+        maxLength={3}
+        placeholder="30"
         placeholderTextColor={COLORS.textMuted}
-        value={formTitle}
-        onChangeText={setFormTitle}
-        maxLength={50}
       />
 
-      <Text style={styles.formLabel}>Duration</Text>
-      <View style={styles.presetRow}>
-        {[7, 20, 30].map(d => (
-          <TouchableOpacity
-            key={d}
-            style={[styles.presetBtn, days === d && styles.presetBtnActive]}
-            onPress={() => setDays(d)}
-          >
-            <Text style={[styles.presetBtnText, days === d && { color: '#fff' }]}>{d}d</Text>
+      {/* Start date */}
+      <Text style={styles.formLabel}>Start date</Text>
+      {Platform.OS === 'web' ? (
+        <TextInput
+          style={styles.formInput}
+          value={startDate.toISOString().split('T')[0]}
+          onChangeText={v => { const d = new Date(v); if (!isNaN(d.getTime())) setStartDate(d); }}
+          placeholder="YYYY-MM-DD"
+          placeholderTextColor={COLORS.textMuted}
+        />
+      ) : (
+        <>
+          <TouchableOpacity style={styles.dateBtn} onPress={() => setShowPicker(v => !v)}>
+            <Text style={styles.dateBtnText}>📅  {formatDate(startDate)}</Text>
           </TouchableOpacity>
-        ))}
-      </View>
-      <View style={styles.stepperRow}>
-        <TouchableOpacity style={styles.stepBtn} onPress={() => setDays(d => Math.max(1, d - 1))}>
-          <Text style={styles.stepBtnText}>−</Text>
-        </TouchableOpacity>
-        <Text style={styles.stepVal}>{days} days</Text>
-        <TouchableOpacity style={styles.stepBtn} onPress={() => setDays(d => Math.min(365, d + 1))}>
-          <Text style={styles.stepBtnText}>+</Text>
-        </TouchableOpacity>
-      </View>
+          {showPicker && (
+            <DateTimePicker
+              value={startDate}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'inline' : 'default'}
+              maximumDate={new Date()}
+              onChange={(_, date) => {
+                if (Platform.OS === 'android') setShowPicker(false);
+                if (date) setStartDate(date);
+              }}
+              style={{ marginTop: 8 }}
+            />
+          )}
+        </>
+      )}
 
       <View style={styles.formActions}>
         <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
@@ -213,8 +237,11 @@ function ChallengeForm({ onClose }: { onClose: () => void }) {
 }
 
 export default function TodayScreen() {
+  useRequireAuth();
   const { state, dispatch, justCompletedChallenge, clearJustCompleted } = useApp();
+  const { session, signOut } = useAuth();
   const router = useRouter();
+  const [profileOpen, setProfileOpen] = useState(false);
   const [confetti, setConfetti] = useState(false);
   const [showChallengeForm, setShowChallengeForm] = useState(false);
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -283,10 +310,11 @@ export default function TodayScreen() {
     rescheduleAll(habits.map(h => h.id === habitId ? updated : h));
   };
 
-  const handleDeleteChallenge = (id: string, title: string) => {
-    Alert.alert(title, 'Delete this challenge?', [
+  const handleChallengeMenu = (id: string, title: string) => {
+    Alert.alert(title, '', [
+      { text: 'Edit Challenge', onPress: () => router.push({ pathname: '/edit-challenge', params: { challengeId: id } }) },
+      { text: 'Delete Challenge', style: 'destructive', onPress: () => dispatch({ type: 'DELETE_CHALLENGE', payload: id }) },
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => dispatch({ type: 'DELETE_CHALLENGE', payload: id }) },
     ]);
   };
 
@@ -300,13 +328,20 @@ export default function TodayScreen() {
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
         <View style={styles.header}>
-          <Text style={styles.greeting}>{greeting(state.userName)}</Text>
-          <Text style={styles.date}>{TODAY_LABEL}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.greeting}>{greeting(state.userName)}</Text>
+            <Text style={styles.date}>{TODAY_LABEL}</Text>
+          </View>
+          <TouchableOpacity style={styles.avatar} onPress={() => setProfileOpen(true)}>
+            <Text style={styles.avatarText}>
+              {(state.userName || session?.user?.email || '?')[0].toUpperCase()}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Progress card — compact */}
         <LinearGradient
-          colors={['#7C5CFF', '#5B3EE8']}
+          colors={['#7a4add', '#6b38c9']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.card}
@@ -348,9 +383,11 @@ export default function TodayScreen() {
               habit={habit}
               progress={getHabitProgress(logs, habit)}
               streak={getStreak(logs, habit)}
+              weekProgress={getWeekProgress(logs, habit)}
               onIncrement={() => handleIncrement(habit.id)}
               onDecrement={() => handleDecrement(habit.id)}
               onDelete={() => handleDelete(habit.id)}
+              onEdit={() => router.push({ pathname: '/edit-habit', params: { habitId: habit.id } })}
               onReminderChange={(enabled, time) => handleReminderChange(habit.id, enabled, time)}
             />
           ))
@@ -377,28 +414,27 @@ export default function TodayScreen() {
 
         {activeChallenges.map(challenge => {
           const habit = habits.find(h => h.id === challenge.habitId);
-          const daysLeft = challenge.durationDays - challenge.completedDates.length;
-          const pct = challenge.completedDates.length / challenge.durationDays;
+          const done = challenge.completedDates.length;
+          const total = challenge.durationDays;
+          const daysLeft = total - done;
+          const pct = Math.min(1, done / total);
           return (
             <TouchableOpacity
               key={challenge.id}
               style={styles.challengeCard}
-              onLongPress={() => handleDeleteChallenge(challenge.id, challenge.title)}
+              onPress={() => handleChallengeMenu(challenge.id, challenge.title)}
               activeOpacity={0.85}
-              delayLongPress={500}
             >
-              <CircleProgress
-                pct={pct}
-                done={challenge.completedDates.length}
-                total={challenge.durationDays}
-              />
+              <Text style={styles.challengeEmoji}>{habit?.emoji ?? '🎯'}</Text>
               <View style={{ flex: 1 }}>
-                <Text style={styles.challengeTitle}>{challenge.title}</Text>
-                <Text style={styles.challengeSub}>
-                  {habit ? `${habit.emoji} ${habit.title}  ·  ` : ''}
-                  {daysLeft > 0 ? `${daysLeft} days to go` : 'Complete!'}
-                </Text>
+                <Text style={styles.challengeTitle} numberOfLines={1}>{challenge.title}</Text>
+                <View style={styles.challengeBar}>
+                  <View style={[styles.challengeBarFill, { width: `${pct * 100}%` as any }]} />
+                </View>
               </View>
+              <Text style={styles.challengeDaysLeft}>
+                {daysLeft > 0 ? `${daysLeft}d left` : '🎉'}
+              </Text>
             </TouchableOpacity>
           );
         })}
@@ -410,17 +446,72 @@ export default function TodayScreen() {
       </ScrollView>
 
       <Confetti visible={confetti} />
+
+      <Modal transparent animationType="fade" visible={profileOpen} onRequestClose={() => setProfileOpen(false)}>
+        <TouchableOpacity style={styles.profileOverlay} activeOpacity={1} onPress={() => setProfileOpen(false)}>
+          <TouchableOpacity activeOpacity={1} style={styles.profileSheet}>
+            <View style={styles.profileAvatar}>
+              <Text style={styles.profileAvatarText}>
+                {(state.userName || session?.user?.email || '?')[0].toUpperCase()}
+              </Text>
+            </View>
+            {!!state.userName && <Text style={styles.profileName}>{state.userName}</Text>}
+            <Text style={styles.profileEmail}>{session?.user?.email}</Text>
+            <TouchableOpacity
+              style={styles.signOutBtn}
+              onPress={() => {
+                setProfileOpen(false);
+                Alert.alert('Sign out', 'Are you sure?', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Sign out', style: 'destructive', onPress: signOut },
+                ]);
+              }}
+            >
+              <Text style={styles.signOutText}>Sign out</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.background },
-  scroll: { padding: SPACING.md, paddingTop: SPACING.lg, paddingBottom: 120 },
+  scroll: { padding: SPACING.md, paddingTop: SPACING.xl, paddingBottom: 80 },
 
-  header: { marginBottom: SPACING.md },
-  greeting: { fontSize: 22, fontWeight: '700', color: COLORS.text },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md },
+  greeting: { fontSize: 22, fontWeight: '700', color: COLORS.text, fontFamily: FONTS.serif },
   date: { fontSize: 13, color: COLORS.textMuted, marginTop: 2 },
+  avatar: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center',
+    marginLeft: SPACING.sm,
+  },
+  avatarText: { fontSize: 16, fontWeight: '700', color: '#fff' },
+
+  profileOverlay: {
+    flex: 1, backgroundColor: 'rgba(45,23,94,0.45)', justifyContent: 'flex-end',
+  },
+  profileSheet: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl,
+    padding: SPACING.lg, paddingBottom: SPACING.xl, alignItems: 'center',
+  },
+  profileAvatar: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center',
+    marginBottom: SPACING.sm,
+  },
+  profileAvatarText: { fontSize: 28, fontWeight: '700', color: '#fff' },
+  profileName: { fontSize: 18, fontWeight: '700', color: COLORS.text, fontFamily: FONTS.serif, marginBottom: 4 },
+  profileEmail: { fontSize: 13, color: COLORS.textMuted, marginBottom: SPACING.lg },
+  signOutBtn: {
+    width: '100%', padding: 14, borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.primaryLight, alignItems: 'center',
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  signOutText: { fontSize: 15, fontWeight: '700', color: COLORS.primary },
 
   // Compact progress card
   card: {
@@ -449,7 +540,7 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.sm,
     marginTop: SPACING.xs,
   },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text, fontFamily: FONTS.serif },
   addBtn: {
     backgroundColor: COLORS.primaryLight,
     borderRadius: RADIUS.full,
@@ -476,16 +567,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.primaryLight,
-    borderRadius: RADIUS.lg,
+    borderRadius: RADIUS.md,
     padding: SPACING.md,
-    marginBottom: SPACING.sm,
+    marginBottom: 8,
+    gap: 12,
     borderWidth: 1,
-    borderColor: `${COLORS.primary}33`,
-    gap: SPACING.sm,
+    borderColor: `${COLORS.primary}22`,
   },
-  challengeIcon: { fontSize: 22 },
-  challengeTitle: { fontSize: 13, fontWeight: '700', color: COLORS.primary },
-  challengeSub: { fontSize: 11, color: COLORS.textSecondary, marginTop: 2 },
+  challengeEmoji: { fontSize: 22 },
+  challengeTitle: { fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 6 },
+  challengeBar: { height: 6, backgroundColor: COLORS.border, borderRadius: 3, overflow: 'hidden' },
+  challengeBarFill: { height: '100%', borderRadius: 3, backgroundColor: COLORS.primary },
+  challengeDaysLeft: { fontSize: 13, fontWeight: '700', color: COLORS.primary, minWidth: 52, textAlign: 'right' },
 
   // Challenge form
   formCard: {
@@ -496,97 +589,67 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.primaryLight,
   },
-  formTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text, marginBottom: SPACING.sm },
+  formTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text, marginBottom: SPACING.sm, fontFamily: FONTS.serif },
   formLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 6,
-    marginTop: 10,
+    fontSize: 11, fontWeight: '600', color: COLORS.textSecondary,
+    textTransform: 'uppercase', letterSpacing: 0.8,
+    marginBottom: 6, marginTop: 12,
   },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.background,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  chipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  chipText: { fontSize: 13, fontWeight: '600', color: COLORS.text },
-  newHabitBox: {
-    backgroundColor: COLORS.background,
-    borderRadius: RADIUS.md,
-    padding: SPACING.sm,
-    marginBottom: 4,
-    borderWidth: 1,
-    borderColor: COLORS.primaryLight,
-  },
-  emojiBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: RADIUS.sm,
-    backgroundColor: COLORS.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 6,
-    borderWidth: 1.5,
-    borderColor: 'transparent',
+  emojiRow: { flexDirection: 'row', gap: 6, marginBottom: 8 },
+  emojiPresetBtn: {
+    flex: 1, height: 44, borderRadius: RADIUS.md,
+    backgroundColor: COLORS.surface, alignItems: 'center',
+    justifyContent: 'center', borderWidth: 2, borderColor: 'transparent',
   },
   emojiBtnActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
+  emojiPresetText: { fontSize: 20 },
+  emojiCustomBtn: {
+    flex: 1, height: 44, borderRadius: RADIUS.md,
+    backgroundColor: COLORS.surface, borderWidth: 2,
+    borderColor: COLORS.border, textAlign: 'center' as const,
+    fontSize: 20, includeFontPadding: false,
+  } as any,
+  emojiCustomBtnActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
   formInput: {
-    backgroundColor: COLORS.background,
-    borderRadius: RADIUS.md,
-    padding: SPACING.md,
-    fontSize: 14,
-    color: COLORS.text,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    backgroundColor: COLORS.background, borderRadius: RADIUS.md,
+    padding: SPACING.md, fontSize: 14, color: COLORS.text,
+    borderWidth: 1, borderColor: COLORS.border,
   },
-  presetRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  presetBtn: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.background,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.border,
+  freqRow: { flexDirection: 'row', gap: 8 },
+  freqBtn: {
+    flex: 1, paddingVertical: 10, borderRadius: RADIUS.md,
+    backgroundColor: COLORS.background, alignItems: 'center',
+    borderWidth: 1, borderColor: COLORS.border,
   },
-  presetBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  presetBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.text },
+  freqBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  freqBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.text },
+  freqBtnTextActive: { color: '#fff' },
+  weeklyRow: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: SPACING.sm, marginTop: SPACING.sm, justifyContent: 'center',
+  },
   stepperRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, marginBottom: SPACING.sm },
   stepBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: COLORS.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: COLORS.primaryLight, alignItems: 'center', justifyContent: 'center',
   },
   stepBtnText: { fontSize: 20, color: COLORS.primary, fontWeight: '700' },
-  stepVal: { fontSize: 16, fontWeight: '700', color: COLORS.text, minWidth: 70, textAlign: 'center' },
-  formActions: { flexDirection: 'row', gap: 10, marginTop: SPACING.sm },
+  stepVal: { fontSize: 16, fontWeight: '700', color: COLORS.text, minWidth: 80, textAlign: 'center' },
+  dateBtn: {
+    backgroundColor: COLORS.background, borderRadius: RADIUS.md,
+    padding: SPACING.md, borderWidth: 1, borderColor: COLORS.border,
+  },
+  dateBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.primary },
+  formActions: { flexDirection: 'row', gap: 10, marginTop: SPACING.md },
   cancelBtn: {
-    flex: 1,
-    padding: 12,
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.background,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    flex: 1, padding: 12, borderRadius: RADIUS.full,
+    backgroundColor: COLORS.background, alignItems: 'center',
+    borderWidth: 1, borderColor: COLORS.border,
   },
   cancelBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.textSecondary },
   createBtn: {
-    flex: 2,
-    padding: 12,
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.primary,
-    alignItems: 'center',
+    flex: 2, padding: 12, borderRadius: RADIUS.full,
+    backgroundColor: COLORS.primary, alignItems: 'center',
   },
   createBtnText: { fontSize: 14, fontWeight: '700', color: '#fff' },
-
 });

@@ -42,7 +42,22 @@ export function getLog(logs: HabitLog[], habitId: string, date: string): HabitLo
 
 export function isHabitDone(logs: HabitLog[], habit: Habit, date = today()): boolean {
   const log = getLog(logs, habit.id, date);
-  return !!log && log.completedCount >= habit.targetVolume;
+  if (!log) return false;
+  if (habit.type === 'weekly') return log.completedCount >= 1;
+  return log.completedCount >= habit.targetVolume;
+}
+
+export function getWeekProgress(logs: HabitLog[], habit: Habit): number {
+  const ref = new Date();
+  const dow = ref.getDay();
+  const mondayOffset = dow === 0 ? -6 : 1 - dow;
+  let count = 0;
+  for (let i = mondayOffset; i <= 0; i++) {
+    const d = new Date(ref);
+    d.setDate(d.getDate() + i);
+    if (isHabitDone(logs, habit, d.toISOString().split('T')[0])) count++;
+  }
+  return count;
 }
 
 export function getHabitProgress(logs: HabitLog[], habit: Habit): number {

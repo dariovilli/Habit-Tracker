@@ -1,4 +1,4 @@
-export type HabitType = 'daily' | 'volume';
+export type HabitType = 'daily' | 'volume' | 'weekly';
 
 export type Habit = {
   id: string;

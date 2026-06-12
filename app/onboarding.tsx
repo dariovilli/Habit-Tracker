@@ -14,16 +14,18 @@ import {
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useApp } from '../src/context';
+import { useRequireAuth } from '../src/useRequireAuth';
 import { Habit, HabitType } from '../src/types';
-import { COLORS, RADIUS, SPACING } from '../src/theme';
+import { COLORS, FONTS, RADIUS, SPACING } from '../src/theme';
 import { feedbackMedium, feedbackSuccess } from '../src/feedback';
 import { requestPermission, scheduleDaily } from '../src/notifications';
 
-const EMOJIS = ['💪', '🏃', '🧘', '📚', '✍️', '💧', '🥗', '😴', '🎯', '🧠', '🎨', '🏋️', '📵', '☀️', '🌙', '❤️'];
+const PRESET_EMOJIS = ['💪', '🏃', '🧘', '📚', '📵'];
 
 type Step = 0 | 1 | 2;
 
 export default function OnboardingScreen() {
+  useRequireAuth();
   const router = useRouter();
   const { dispatch } = useApp();
   const [step, setStep] = useState<Step>(0);
@@ -33,7 +35,10 @@ export default function OnboardingScreen() {
   const [name, setName] = useState('');
 
   const [habitTitle, setHabitTitle] = useState('');
-  const [habitEmoji, setHabitEmoji] = useState('💪');
+  const [selectedPreset, setSelectedPreset] = useState('💪');
+  const [customEmoji, setCustomEmoji] = useState('');
+  const [customFocused, setCustomFocused] = useState(false);
+  const habitEmoji = customEmoji || selectedPreset;
   const [habitType, setHabitType] = useState<HabitType>('daily');
   const [habitVolume, setHabitVolume] = useState(3);
 
@@ -102,7 +107,7 @@ export default function OnboardingScreen() {
 
 
   return (
-    <LinearGradient colors={['#7C5CFF', '#4A2FCC']} style={styles.gradient}>
+    <LinearGradient colors={['#7a4add', '#592ea9']} style={styles.gradient}>
       <SafeAreaView style={{ flex: 1 }}>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
@@ -149,17 +154,26 @@ export default function OnboardingScreen() {
                   <Text style={styles.heading}>Your first habit</Text>
                   <Text style={styles.sub}>Pick one thing you want to do every day.</Text>
 
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-                    {EMOJIS.map(e => (
+                  <View style={styles.emojiRow}>
+                    {PRESET_EMOJIS.map(e => (
                       <TouchableOpacity
                         key={e}
-                        style={[styles.emojiBtn, habitEmoji === e && styles.emojiBtnSelected]}
-                        onPress={() => setHabitEmoji(e)}
+                        style={[styles.emojiPresetBtn, !customEmoji && selectedPreset === e && styles.emojiBtnActive]}
+                        onPress={() => { setSelectedPreset(e); setCustomEmoji(''); }}
                       >
-                        <Text style={{ fontSize: 24 }}>{e}</Text>
+                        <Text style={styles.emojiPresetText}>{e}</Text>
                       </TouchableOpacity>
                     ))}
-                  </ScrollView>
+                    <TextInput
+                      style={[styles.emojiCustomBtn, (!!customEmoji || customFocused) && styles.emojiCustomBtnActive]}
+                      value={customEmoji}
+                      onChangeText={v => { setCustomEmoji(v.trim()); }}
+                      placeholder=""
+                      maxLength={6}
+                      onFocus={() => setCustomFocused(true)}
+                      onBlur={() => setCustomFocused(false)}
+                    />
+                  </View>
 
                   <TextInput
                     style={styles.input}
@@ -293,7 +307,7 @@ const styles = StyleSheet.create({
   content: { flex: 1, padding: SPACING.lg },
   stepContainer: { flex: 1, justifyContent: 'center', paddingBottom: 40 },
   stepEmoji: { fontSize: 52, marginBottom: SPACING.md },
-  heading: { fontSize: 28, fontWeight: '800', color: '#fff', marginBottom: 10 },
+  heading: { fontSize: 28, fontWeight: '800', color: '#fff', marginBottom: 10, fontFamily: FONTS.serif },
   sub: { fontSize: 16, color: 'rgba(255,255,255,0.8)', lineHeight: 24, marginBottom: SPACING.lg },
 
   input: {
@@ -317,18 +331,21 @@ const styles = StyleSheet.create({
   btnDisabled: { opacity: 0.4 },
   btnText: { fontSize: 16, fontWeight: '800', color: COLORS.primary },
 
-  emojiBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: RADIUS.md,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-    borderWidth: 2,
-    borderColor: 'transparent',
+  emojiRow: { flexDirection: 'row', gap: 8, marginBottom: SPACING.md },
+  emojiPresetBtn: {
+    flex: 1, height: 48, borderRadius: RADIUS.md,
+    backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center',
+    justifyContent: 'center', borderWidth: 2, borderColor: 'transparent',
   },
-  emojiBtnSelected: { borderColor: '#fff', backgroundColor: 'rgba(255,255,255,0.3)' },
+  emojiBtnActive: { borderColor: '#fff', backgroundColor: 'rgba(255,255,255,0.3)' },
+  emojiPresetText: { fontSize: 22 },
+  emojiCustomBtn: {
+    flex: 1, height: 48, borderRadius: RADIUS.md,
+    backgroundColor: 'rgba(255,255,255,0.15)', borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.3)', textAlign: 'center' as const,
+    fontSize: 22, includeFontPadding: false, color: '#fff',
+  } as any,
+  emojiCustomBtnActive: { borderColor: '#fff', backgroundColor: 'rgba(255,255,255,0.3)' },
 
   typeRow: { flexDirection: 'row', gap: 10, marginBottom: SPACING.md },
   typeBtn: {

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useReducer } from 'react';
+import React, { createContext, useContext, useEffect, useReducer, useRef, useState } from 'react';
 import { AppState, Habit, HabitLog, Challenge } from './types';
 import {
   DEFAULT_STATE,
@@ -8,6 +8,9 @@ import {
   decrementHabit,
   updateChallenge,
 } from './store';
+import { useAuth } from './auth-context';
+import { supabase } from './supabase';
+import { fetchUserState, pushAllState, deleteHabit, deleteLog, deleteChallenge } from './db';
 
 type Action =
   | { type: 'LOADED'; payload: AppState }
@@ -48,6 +51,7 @@ function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         habits: state.habits.filter(h => h.id !== action.payload),
+        logs: state.logs.filter(l => l.habitId !== action.payload),
         challenges: state.challenges.filter(c => c.habitId !== action.payload),
       };
 
@@ -92,6 +96,7 @@ function reducer(state: AppState, action: Action): AppState {
     }
 
     case 'DEV_FORCE_COMPLETE_CHALLENGE': {
+      if (!__DEV__) return state;
       const challenges = state.challenges.map(c =>
         c.id === action.payload
           ? { ...c, completed: true, completedAt: new Date().toISOString(), celebrated: false }
@@ -101,6 +106,7 @@ function reducer(state: AppState, action: Action): AppState {
     }
 
     case 'DEV_ADD_CHALLENGE_DAYS': {
+      if (!__DEV__) return state;
       const { challengeId, days } = action.payload;
       const challenge = state.challenges.find(c => c.id === challengeId);
       if (!challenge) return state;
@@ -158,27 +164,144 @@ function reducer(state: AppState, action: Action): AppState {
 const AppContext = createContext<ContextValue | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
+
   const [state, dispatch] = useReducer(reducer, DEFAULT_STATE);
-  const [loaded, setLoaded] = React.useState(false);
-  const [justCompletedChallenge, setJustCompletedChallenge] =
-    React.useState<Challenge | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [syncReady, setSyncReady] = useState(false);
+  const [justCompletedChallenge, setJustCompletedChallenge] = useState<Challenge | null>(null);
 
+  const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevHabitIdsRef = useRef(new Set<string>());
+  const prevLogIdsRef = useRef(new Set<string>());
+  const prevChallengeIdsRef = useRef(new Set<string>());
+
+  // Load local state first (instant), then sync from Supabase in background
   useEffect(() => {
-    loadState().then(s => {
-      dispatch({ type: 'LOADED', payload: s });
+    setLoaded(false);
+    setSyncReady(false);
+    prevHabitIdsRef.current = new Set();
+    prevLogIdsRef.current = new Set();
+    prevChallengeIdsRef.current = new Set();
+
+    loadState().then(async (localState) => {
+      dispatch({ type: 'LOADED', payload: localState });
       setLoaded(true);
+
+      if (!userId) {
+        prevHabitIdsRef.current = new Set(localState.habits.map(h => h.id));
+        prevLogIdsRef.current = new Set(localState.logs.map(l => l.id));
+        prevChallengeIdsRef.current = new Set(localState.challenges.map(c => c.id));
+        setSyncReady(true);
+        return;
+      }
+
+      try {
+        const remote = await fetchUserState(userId);
+        if (remote && remote.habits.length > 0) {
+          // Remote has data — use it as the source of truth
+          const { data: { user } } = await supabase.auth.getUser();
+          const merged: AppState = {
+            ...localState,
+            habits: remote.habits,
+            logs: remote.logs,
+            challenges: remote.challenges,
+            onboardingDone: localState.onboardingDone || (user?.user_metadata?.onboarding_done ?? false),
+            userName: localState.userName || (user?.user_metadata?.user_name ?? ''),
+          };
+          dispatch({ type: 'LOADED', payload: merged });
+          await saveState(merged);
+          prevHabitIdsRef.current = new Set(remote.habits.map(h => h.id));
+          prevLogIdsRef.current = new Set(remote.logs.map(l => l.id));
+          prevChallengeIdsRef.current = new Set(remote.challenges.map(c => c.id));
+        } else if (remote) {
+          // First login — push any existing local data up to Supabase
+          await pushAllState(localState, userId);
+          if (localState.onboardingDone) {
+            supabase.auth.updateUser({
+              data: { onboarding_done: true, user_name: localState.userName },
+            });
+          }
+          prevHabitIdsRef.current = new Set(localState.habits.map(h => h.id));
+          prevLogIdsRef.current = new Set(localState.logs.map(l => l.id));
+          prevChallengeIdsRef.current = new Set(localState.challenges.map(c => c.id));
+        }
+      } catch {
+        // Network error — stay with local state
+        prevHabitIdsRef.current = new Set(localState.habits.map(h => h.id));
+        prevLogIdsRef.current = new Set(localState.logs.map(l => l.id));
+        prevChallengeIdsRef.current = new Set(localState.challenges.map(c => c.id));
+      }
+
+      setSyncReady(true);
     });
-  }, []);
+  }, [userId]);
 
+  // Persist to AsyncStorage on every state change
   useEffect(() => {
-    saveState(state);
-  }, [state]);
+    if (loaded) saveState(state);
+  }, [state, loaded]);
 
+  // Sync onboarding completion to Supabase user metadata
+  useEffect(() => {
+    if (!userId || !loaded || !state.onboardingDone) return;
+    supabase.auth.updateUser({ data: { onboarding_done: true, user_name: state.userName } });
+  }, [state.onboardingDone, state.userName, userId, loaded]);
+
+  // Debounced upsert sync — pushes all current data to Supabase after changes settle
+  useEffect(() => {
+    if (!userId || !syncReady) return;
+    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+    syncTimeoutRef.current = setTimeout(() => {
+      pushAllState(state, userId);
+    }, 600);
+    return () => { if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current); };
+  }, [state.habits, state.logs, state.challenges, userId, syncReady]);
+
+  // Delete sync — detect removed habit IDs and delete from Supabase
+  useEffect(() => {
+    if (!userId || !syncReady) {
+      prevHabitIdsRef.current = new Set(state.habits.map(h => h.id));
+      return;
+    }
+    const curr = new Set(state.habits.map(h => h.id));
+    prevHabitIdsRef.current.forEach(id => {
+      if (!curr.has(id)) deleteHabit(id, userId);
+    });
+    prevHabitIdsRef.current = curr;
+  }, [state.habits, userId, syncReady]);
+
+  // Delete sync — detect removed log IDs and delete from Supabase
+  useEffect(() => {
+    if (!userId || !syncReady) {
+      prevLogIdsRef.current = new Set(state.logs.map(l => l.id));
+      return;
+    }
+    const curr = new Set(state.logs.map(l => l.id));
+    prevLogIdsRef.current.forEach(id => {
+      if (!curr.has(id)) deleteLog(id, userId);
+    });
+    prevLogIdsRef.current = curr;
+  }, [state.logs, userId, syncReady]);
+
+  // Delete sync — detect removed challenge IDs and delete from Supabase
+  useEffect(() => {
+    if (!userId || !syncReady) {
+      prevChallengeIdsRef.current = new Set(state.challenges.map(c => c.id));
+      return;
+    }
+    const curr = new Set(state.challenges.map(c => c.id));
+    prevChallengeIdsRef.current.forEach(id => {
+      if (!curr.has(id)) deleteChallenge(id, userId);
+    });
+    prevChallengeIdsRef.current = curr;
+  }, [state.challenges, userId, syncReady]);
+
+  // Challenge completion detection
   useEffect(() => {
     const uncelebrated = state.challenges.find(c => c.completed && !c.celebrated);
-    if (uncelebrated) {
-      setJustCompletedChallenge(uncelebrated);
-    }
+    if (uncelebrated) setJustCompletedChallenge(uncelebrated);
   }, [state.challenges]);
 
   const clearJustCompleted = () => setJustCompletedChallenge(null);
