@@ -23,6 +23,16 @@ npm install <package-name> --legacy-peer-deps
 
 Node.js is via Homebrew. Prefix with `export PATH="/opt/homebrew/bin:$PATH"` if commands fail.
 
+```bash
+# Build Android APK for sideloading (EAS cloud build)
+eas build -p android --profile preview
+
+# Build production AAB (for Google Play)
+eas build -p android --profile production
+```
+
+`.npmrc` contains `legacy-peer-deps=true` — required for EAS cloud builds due to peer-dep conflicts. Supabase URL and anon key live in `eas.json` `env` sections (intentionally not gitignored; anon key is safe to expose). After bumping `version`/`versionCode` in `app.json`, trigger a new build — users on sideloaded APK must manually download and install the new `.apk` link from the EAS dashboard.
+
 The Expo Go app version on the device must match SDK 54 in `package.json`.
 
 ## Stack
@@ -50,7 +60,7 @@ The Expo Go app version on the device must match SDK 54 in `package.json`.
 
 All app state flows through a single React Context + useReducer in `src/context.tsx`:
 
-- **`src/types.ts`** — canonical type definitions: `Habit`, `HabitLog`, `Challenge`, `AppState`. `HabitType = 'daily' | 'volume' | 'weekly'`
+- **`src/types.ts`** — canonical type definitions: `Habit`, `HabitLog`, `Challenge`, `AppState`. `HabitType = 'daily' | 'volume' | 'weekly' | 'log'`
 - **`src/store.ts`** — pure functions: `incrementHabit`, `decrementHabit`, `updateChallenge`, `getStreak`, `isHabitDone`, `getWeekProgress`, `getMonthDays`. `loadState`/`saveState` serialize `AppState` to AsyncStorage under key `@antigravity_v1`.
 - **`src/context.tsx`** — local-first + Supabase sync. On `userId` change: loads AsyncStorage instantly (snappy UI), then fetches Supabase in background. Remote wins if it has data; pushes local up if remote is empty (first login). Debounced upsert (600ms) on state changes. Delete tracking via `prevHabitIdsRef` / `prevLogIdsRef` / `prevChallengeIdsRef`.
 - **`src/db.ts`** — Supabase CRUD with camelCase↔snake_case mapping: `fetchUserState`, `upsertHabit/Log/Challenge`, `deleteHabit/Log/Challenge`, `pushAllState`
@@ -67,9 +77,10 @@ app/
   index.tsx                — auth-aware redirect: spinner → /login → /onboarding → /(tabs)
   login.tsx                — email/password sign in / sign up screen
   onboarding.tsx           — 3-step flow; skips to /(tabs) when onboardingDone
-  add-habit.tsx            — modal slide-up for creating habits
-  edit-habit.tsx           — modal slide-up for editing existing habit (emoji + name)
-  edit-challenge.tsx       — modal slide-up for editing existing challenge
+  add-habit.tsx            — modal slide-up for creating habits (4-type grid: daily/volume/weekly/log)
+  edit-habit.tsx           — modal slide-up for editing existing habit (full form: icon, name, type, target)
+  edit-challenge.tsx       — modal slide-up for editing existing challenge (title, icon, duration, start date, days completed)
+  set-new-password.tsx     — deep-link target for password reset emails
   challenge-complete.tsx   — modal fade for celebration screen
   (tabs)/
     _layout.tsx            — BottomTabNavigator; 2 visible tabs (Today, Stats); Dev tab is href:null
@@ -96,7 +107,7 @@ app/
 
 ### Key component patterns
 
-- **`HabitRow`** (`components/HabitRow.tsx`) — self-contained card with reanimated scale, inline bell/reminder expander, long-press → Alert with Edit / Delete. Single "Set" toggle button for reminders (outlined = off, filled purple = on). Weekly habits show "X/Y days this week" subtext. Props include `weekProgress?` and `onEdit?`.
+- **`HabitRow`** (`components/HabitRow.tsx`) — self-contained card with reanimated scale, inline bell/reminder expander, long-press → Alert with Edit / Delete. Single "Set" toggle button for reminders (outlined = off, filled purple = on). Weekly habits show X/Y counter with +/- (+ disabled when today already logged; - disabled when today not logged). `log` type uses checkmark UI and toggles off on re-tap (same as `daily`). Props include `weekProgress?` and `onEdit?`.
 - **`Confetti`** (`components/Confetti.tsx`) — accepts `count` prop (default 24, use 60 for celebrations)
 - Challenge cards in Today use a bar design: emoji + title + progress bar + days-left label. No SVG rings.
 - Notification scheduling: always call `rescheduleAll(allHabits)` after any `UPDATE_HABIT` that touches reminder fields.

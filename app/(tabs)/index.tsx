@@ -350,7 +350,7 @@ export default function TodayScreen() {
   });
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
         <View style={styles.header}>
@@ -359,9 +359,13 @@ export default function TodayScreen() {
             <Text style={styles.date}>{TODAY_LABEL}</Text>
           </View>
           <TouchableOpacity style={styles.avatar} onPress={() => setProfileOpen(true)}>
-            <Text style={styles.avatarText}>
-              {(state.userName || session?.user?.email || '?')[0].toUpperCase()}
-            </Text>
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={styles.avatarImg} />
+            ) : (
+              <Text style={styles.avatarText}>
+                {(state.userName || session?.user?.email || '?')[0].toUpperCase()}
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -526,8 +530,9 @@ const styles = StyleSheet.create({
   avatar: {
     width: 38, height: 38, borderRadius: 19,
     backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center',
-    marginLeft: SPACING.sm,
+    marginLeft: SPACING.sm, overflow: 'hidden',
   },
+  avatarImg: { width: 38, height: 38, borderRadius: 19 },
   avatarText: { fontSize: 16, fontWeight: '700', color: '#fff' },
 
   profileOverlay: {

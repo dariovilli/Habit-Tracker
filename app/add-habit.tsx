@@ -30,7 +30,8 @@ export default function AddHabitScreen() {
   const emoji = customEmoji || selectedPreset;
 
   const [title, setTitle] = useState('');
-  const [type, setType] = useState<HabitType>('daily');
+  const [type, setType] = useState<HabitType>('log');
+  const [showFrequency, setShowFrequency] = useState(false);
   const [volume, setVolume] = useState(3);
   const [daysPerWeek, setDaysPerWeek] = useState(3);
 
@@ -94,49 +95,62 @@ export default function AddHabitScreen() {
             returnKeyType="done"
           />
 
-          <Text style={styles.label}>Tracking type</Text>
-          <View style={styles.typeGrid}>
-            {([
-              { value: 'daily', label: '✓ Once a day', sub: 'Check off daily' },
-              { value: 'volume', label: '🔢 Volume', sub: 'Count reps/sets' },
-              { value: 'weekly', label: '📅 X / week', sub: 'Days per week goal' },
-              { value: 'log', label: '📝 Log only', sub: 'No goal, just track' },
-            ] as { value: HabitType; label: string; sub: string }[]).map(t => (
+          {!showFrequency ? (
+            <TouchableOpacity
+              style={styles.addFreqBtn}
+              onPress={() => { setShowFrequency(true); setType('daily'); }}
+            >
+              <Text style={styles.addFreqBtnText}>＋ Add frequency goal</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.frequencyBox}>
+              <View style={styles.typeRow}>
+                {([
+                  { value: 'daily', label: '✓ Once a day' },
+                  { value: 'volume', label: '🔢 Volume' },
+                  { value: 'weekly', label: '📅 X / week' },
+                ] as { value: HabitType; label: string }[]).map(t => (
+                  <TouchableOpacity
+                    key={t.value}
+                    style={[styles.typeBtn, type === t.value && styles.typeBtnActive]}
+                    onPress={() => setType(t.value)}
+                  >
+                    <Text style={[styles.typeBtnLabel, type === t.value && styles.typeBtnTextActive]}>
+                      {t.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {type === 'weekly' && (
+                <View style={styles.stepperRow}>
+                  <TouchableOpacity style={styles.volBtn} onPress={() => setDaysPerWeek(v => Math.max(1, v - 1))}>
+                    <Text style={styles.volBtnText}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.volValue}>{daysPerWeek} days / week</Text>
+                  <TouchableOpacity style={styles.volBtn} onPress={() => setDaysPerWeek(v => Math.min(6, v + 1))}>
+                    <Text style={styles.volBtnText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {type === 'volume' && (
+                <View style={styles.stepperRow}>
+                  <TouchableOpacity style={styles.volBtn} onPress={() => setVolume(v => Math.max(2, v - 1))}>
+                    <Text style={styles.volBtnText}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.volValue}>{volume}× per day</Text>
+                  <TouchableOpacity style={styles.volBtn} onPress={() => setVolume(v => Math.min(99, v + 1))}>
+                    <Text style={styles.volBtnText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
               <TouchableOpacity
-                key={t.value}
-                style={[styles.typeBtn, type === t.value && styles.typeBtnActive]}
-                onPress={() => setType(t.value)}
+                onPress={() => { setShowFrequency(false); setType('log'); }}
+                style={styles.removeFreqBtn}
               >
-                <Text style={[styles.typeBtnLabel, type === t.value && styles.typeBtnTextActive]}>
-                  {t.label}
-                </Text>
-                <Text style={[styles.typeBtnSub, type === t.value && styles.typeBtnSubActive]}>
-                  {t.sub}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {type === 'weekly' && (
-            <View style={styles.stepperRow}>
-              <TouchableOpacity style={styles.volBtn} onPress={() => setDaysPerWeek(v => Math.max(1, v - 1))}>
-                <Text style={styles.volBtnText}>−</Text>
-              </TouchableOpacity>
-              <Text style={styles.volValue}>{daysPerWeek} days / week</Text>
-              <TouchableOpacity style={styles.volBtn} onPress={() => setDaysPerWeek(v => Math.min(6, v + 1))}>
-                <Text style={styles.volBtnText}>+</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {type === 'volume' && (
-            <View style={styles.stepperRow}>
-              <TouchableOpacity style={styles.volBtn} onPress={() => setVolume(v => Math.max(2, v - 1))}>
-                <Text style={styles.volBtnText}>−</Text>
-              </TouchableOpacity>
-              <Text style={styles.volValue}>{volume}× per day</Text>
-              <TouchableOpacity style={styles.volBtn} onPress={() => setVolume(v => Math.min(99, v + 1))}>
-                <Text style={styles.volBtnText}>+</Text>
+                <Text style={styles.removeFreqBtnText}>✕ Remove frequency goal</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -196,17 +210,38 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.border,
   },
 
-  typeGrid: { gap: 8 },
-  typeBtn: {
-    padding: 12, borderRadius: RADIUS.md,
-    backgroundColor: COLORS.surface, borderWidth: 1,
+  addFreqBtn: {
+    marginTop: SPACING.lg,
+    alignSelf: 'flex-start',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
     borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+  },
+  addFreqBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.primary },
+
+  frequencyBox: {
+    marginTop: SPACING.lg,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.sm,
+  },
+  typeRow: { flexDirection: 'row', gap: 6 },
+  typeBtn: {
+    flex: 1, paddingVertical: 10, borderRadius: RADIUS.md,
+    backgroundColor: COLORS.background, alignItems: 'center',
+    borderWidth: 1, borderColor: COLORS.border,
   },
   typeBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  typeBtnLabel: { fontSize: 14, fontWeight: '600', color: COLORS.text },
-  typeBtnSub: { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
+  typeBtnLabel: { fontSize: 12, fontWeight: '600', color: COLORS.text },
   typeBtnTextActive: { color: '#fff' },
-  typeBtnSubActive: { color: 'rgba(255,255,255,0.75)' },
+
+  removeFreqBtn: { alignSelf: 'center', marginTop: SPACING.sm, paddingVertical: 6 },
+  removeFreqBtnText: { fontSize: 12, color: COLORS.textMuted },
 
   stepperRow: {
     flexDirection: 'row', alignItems: 'center',
