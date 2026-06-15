@@ -25,7 +25,7 @@ import { useRequireAuth } from '../../src/useRequireAuth';
 import { isHabitDone, getHabitProgress, getStreak, getWeekProgress, today } from '../../src/store';
 import { feedbackMedium, feedbackComplete, feedbackLight } from '../../src/feedback';
 import { playChime } from '../../src/sound';
-import { rescheduleAll } from '../../src/notifications';
+import { rescheduleAll, requestPermission } from '../../src/notifications';
 import { COLORS, FONTS, RADIUS, SPACING } from '../../src/theme';
 import { HabitRow } from '../../components/HabitRow';
 import { Confetti } from '../../components/Confetti';
@@ -253,6 +253,7 @@ export default function TodayScreen() {
 
   useEffect(() => {
     AsyncStorage.getItem(AVATAR_KEY).then(v => { if (v) setAvatarUri(v); });
+    requestPermission();
   }, []);
 
   const pickAvatar = async () => {
